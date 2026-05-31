@@ -1,36 +1,49 @@
-/** Shape of each lab value returned by the AI parser. */
-export interface ParsedLabValue {
+export interface ParsedReportSource {
+  file: string;
+  section: string;
+  distance: number;
+}
+
+export interface ParsedReportValue {
   name: string;
   value: string;
-  unit?: string;
-  referenceRange?: string;
+  unit: string;
+  reference_range: string;
   status: 'normal' | 'low' | 'high' | 'critical';
-  explanation?: string;
+  explanation: string;
+  cited_explanation?: string;
+  sources?: ParsedReportSource[];
 }
 
-/** Full parsed report object returned by the AI parser. */
+export interface PatternExplanation {
+  pattern: string;
+  explanation: string;
+  sources: ParsedReportSource[];
+}
+
 export interface ParsedReport {
-  reportDate: string;        // ISO date (YYYY-MM-DD)
-  labName?: string;
-  testPanel?: string;
-  trafficLight: 'green' | 'yellow' | 'red';
-  headline: string;
-  abnormalCount: number;
-  patternsDetected: string[];
-  nextSteps: string;
+  patient: {
+    name: string | null;
+    age: string | null;
+    gender: string | null;
+    report_date: string | null;
+    lab_name: string | null;
+  };
+  test_panel: string;
+  values: ParsedReportValue[];
+  summary: {
+    traffic_light: 'green' | 'yellow' | 'red';
+    headline: string;
+    abnormal_count: number;
+    patterns_detected: string[];
+    pattern_explanations?: PatternExplanation[];
+    next_steps: string;
+  };
   disclaimer: string;
-  labValues: ParsedLabValue[];
-}
-
-/** Token usage + cost returned alongside the parsed report. */
-export interface ParseUsage {
-  input_tokens: number;
-  output_tokens: number;
-  est_cost_inr: number;
-}
-
-/** Full response shape from POST /api/parse */
-export interface ParseApiResponse {
-  parsed: ParsedReport;
-  usage: ParseUsage;
+  meta: {
+    rag_calls: number;
+    rag_input_tokens: number;
+    rag_output_tokens: number;
+    rag_estimated_cost_inr: number;
+  };
 }

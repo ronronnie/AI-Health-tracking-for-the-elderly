@@ -25,6 +25,7 @@ export interface Report {
   nextSteps: string;
   disclaimer: string;
   parseCostInr?: number;
+  parsedJson?: string;   // Full ParsedReport JSON from the Python backend
   createdAt: string;
 }
 
@@ -37,6 +38,8 @@ export interface LabValue {
   referenceRange?: string;
   status: 'normal' | 'low' | 'high' | 'critical';
   explanation?: string;
+  citedExplanation?: string;   // RAG-grounded explanation (abnormal values only)
+  sources?: string;             // JSON array of ParsedReportSource
   userEdited: boolean;
 }
 

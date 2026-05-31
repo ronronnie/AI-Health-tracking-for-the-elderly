@@ -1,7 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAnthropicApiKey } from '@/lib/env';
 import { LAB_PARSER_SYSTEM_PROMPT } from '@/lib/services/labParserPrompt';
-import type { ParsedReport, ParseUsage } from '@/lib/types';
+
+// Local types for the legacy Next.js route (frontend now calls Python backend directly)
+type LegacyParsedReport = {
+  reportDate: string;
+  labName?: string;
+  testPanel?: string;
+  trafficLight: 'green' | 'yellow' | 'red';
+  headline: string;
+  abnormalCount: number;
+  patternsDetected: string[];
+  nextSteps: string;
+  disclaimer: string;
+  labValues: Array<{
+    name: string; value: string; unit?: string; referenceRange?: string;
+    status: 'normal' | 'low' | 'high' | 'critical'; explanation?: string;
+  }>;
+};
+type LegacyParseUsage = { input_tokens: number; output_tokens: number; est_cost_inr: number };
 
 // Claude Haiku 4.5 pricing (USD per token)
 const INPUT_PRICE_PER_TOKEN = 0.80 / 1_000_000;
@@ -177,7 +194,7 @@ export async function POST(req: NextRequest) {
     disclaimer?: string;
   };
 
-  let parsed: ParsedReport;
+  let parsed: LegacyParsedReport;
   try {
     const raw = JSON.parse(jsonText) as RawAiResponse;
     parsed = {
@@ -207,7 +224,7 @@ export async function POST(req: NextRequest) {
   // ── 6. Compute cost ───────────────────────────────────────────────────
   const { input_tokens, output_tokens } = anthropicBody.usage ?? { input_tokens: 0, output_tokens: 0 };
   const costUsd = input_tokens * INPUT_PRICE_PER_TOKEN + output_tokens * OUTPUT_PRICE_PER_TOKEN;
-  const usage: ParseUsage = {
+  const usage: LegacyParseUsage = {
     input_tokens,
     output_tokens,
     est_cost_inr: parseFloat((costUsd * USD_TO_INR).toFixed(2)),

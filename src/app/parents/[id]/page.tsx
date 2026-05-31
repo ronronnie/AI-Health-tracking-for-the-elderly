@@ -26,7 +26,7 @@ import {
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { db } from "@/lib/db";
-import type { ParseApiResponse } from "@/lib/types";
+import { parseReport, healthCheck } from "@/lib/services/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -65,7 +65,14 @@ type UploadPhase =
   | { phase: "idle" }
   | { phase: "choosing" }
   | { phase: "parsing" }
-  | { phase: "error"; message: string };
+  | { phase: "error"; message: string; isNetwork?: boolean };
+
+const PARSE_MESSAGES = [
+  "Extracting text from the report…",
+  "Identifying abnormal values…",
+  "Looking up reference passages…",
+  "Generating cited explanations…",
+] as const;
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -187,65 +194,93 @@ export default function ParentDetailPage() {
 
   // ── Upload / parse flow ──────────────────────────────────────────────────
   const [uploadPhase, setUploadPhase] = useState<UploadPhase>({ phase: "idle" });
+  const [parseMessageIndex, setParseMessageIndex] = useState(0);
+  const [testingHealth, setTestingHealth] = useState(false);
+  const [healthTestResult, setHealthTestResult] = useState<string | null>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
   const pdfInputRef = useRef<HTMLInputElement>(null);
 
+  useEffect(() => {
+    if (uploadPhase.phase !== "parsing") return;
+    setParseMessageIndex(0);
+    const interval = setInterval(() => {
+      setParseMessageIndex((i) => (i + 1) % PARSE_MESSAGES.length);
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [uploadPhase.phase]);
+
+  async function handleTestConnection() {
+    setTestingHealth(true);
+    setHealthTestResult(null);
+    try {
+      const result = await healthCheck();
+      setHealthTestResult(
+        `Backend is running · ${result.corpus_chunks} corpus chunks loaded`
+      );
+    } catch {
+      setHealthTestResult("Backend not reachable — is it running?");
+    } finally {
+      setTestingHealth(false);
+    }
+  }
+
   async function processFile(file: File) {
+    if (file.size > 20 * 1024 * 1024) {
+      toast.warning("File is larger than 20 MB — saving may be slow.");
+    }
+
     setUploadPhase({ phase: "parsing" });
 
-    const formData = new FormData();
-    formData.append("file", file);
-
-    let result: ParseApiResponse;
+    let parsed;
     try {
-      const res = await fetch("/api/parse", { method: "POST", body: formData });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({ error: "Server error" }));
-        setUploadPhase({ phase: "error", message: body.error ?? "Something went wrong." });
-        return;
-      }
-      result = (await res.json()) as ParseApiResponse;
-    } catch {
-      setUploadPhase({
-        phase: "error",
-        message: "Could not reach the server. Check your internet connection.",
-      });
+      parsed = await parseReport(file);
+    } catch (err) {
+      const isNetwork = err instanceof TypeError;
+      const message = isNetwork
+        ? "Couldn't reach the parser service. Make sure the backend is running at http://localhost:8000."
+        : err instanceof Error
+        ? err.message
+        : "Something went wrong.";
+      setUploadPhase({ phase: "error", message, isNetwork });
       return;
     }
 
     const reportId = crypto.randomUUID();
-    const { parsed, usage } = result;
+    const today = new Date().toISOString().split("T")[0];
 
     try {
       await db.transaction("rw", [db.reports, db.labValues], async () => {
         await db.reports.add({
           id: reportId,
           parentId: id,
-          reportDate: parsed.reportDate ?? new Date().toISOString().split("T")[0],
-          labName: parsed.labName,
-          testPanel: parsed.testPanel,
+          reportDate: parsed.patient.report_date ?? today,
+          labName: parsed.patient.lab_name ?? undefined,
+          testPanel: parsed.test_panel,
           originalFileName: file.name,
           originalFileBlob: file,
-          trafficLight: parsed.trafficLight ?? "yellow",
-          headline: parsed.headline ?? "Report parsed",
-          abnormalCount: parsed.abnormalCount ?? 0,
-          patternsDetected: parsed.patternsDetected ?? [],
-          nextSteps: parsed.nextSteps ?? "",
-          disclaimer: parsed.disclaimer ?? "",
-          parseCostInr: usage?.est_cost_inr,
+          trafficLight: parsed.summary.traffic_light,
+          headline: parsed.summary.headline,
+          abnormalCount: parsed.summary.abnormal_count,
+          patternsDetected: parsed.summary.patterns_detected,
+          nextSteps: parsed.summary.next_steps,
+          disclaimer: parsed.disclaimer,
+          parseCostInr: parsed.meta.rag_estimated_cost_inr,
+          parsedJson: JSON.stringify(parsed),
           createdAt: new Date().toISOString(),
         });
 
-        for (const lv of parsed.labValues ?? []) {
+        for (const v of parsed.values) {
           await db.labValues.add({
             id: crypto.randomUUID(),
             reportId,
-            name: lv.name,
-            value: lv.value,
-            unit: lv.unit,
-            referenceRange: lv.referenceRange,
-            status: lv.status ?? "normal",
-            explanation: lv.explanation,
+            name: v.name,
+            value: v.value,
+            unit: v.unit || undefined,
+            referenceRange: v.reference_range || undefined,
+            status: v.status,
+            explanation: v.explanation,
+            citedExplanation: v.cited_explanation,
+            sources: v.sources ? JSON.stringify(v.sources) : undefined,
             userEdited: false,
           });
         }
@@ -581,12 +616,15 @@ export default function ParentDetailPage() {
 
       {/* ── Parsing overlay ─────────────────────────────────────────────── */}
       {uploadPhase.phase === "parsing" && (
-        <div className="fixed inset-0 z-50 bg-background/95 backdrop-blur-sm flex flex-col items-center justify-center gap-5 px-8 text-center">
-          <Loader2 className="h-10 w-10 animate-spin text-primary" />
-          <div className="space-y-1">
+        <div className="fixed inset-0 z-50 bg-background/95 backdrop-blur-sm flex flex-col items-center justify-center gap-6 px-8 text-center">
+          <Loader2 className="h-12 w-12 animate-spin text-primary" />
+          <div className="space-y-2 max-w-xs">
             <p className="text-lg font-semibold">Reading the report…</p>
             <p className="text-sm text-muted-foreground">
-              This usually takes 10–20 seconds.
+              This usually takes 30–60 seconds.
+            </p>
+            <p className="text-sm text-primary font-medium min-h-[1.25rem] transition-all">
+              {PARSE_MESSAGES[parseMessageIndex]}
             </p>
           </div>
         </div>
@@ -596,27 +634,70 @@ export default function ParentDetailPage() {
       <Dialog
         open={uploadPhase.phase === "error"}
         onOpenChange={(open) => {
-          if (!open) setUploadPhase({ phase: "idle" });
+          if (!open) {
+            setUploadPhase({ phase: "idle" });
+            setHealthTestResult(null);
+          }
         }}
       >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Could not parse report</DialogTitle>
           </DialogHeader>
-          <p className="text-sm text-muted-foreground">
-            {uploadPhase.phase === "error" ? uploadPhase.message : ""}
-          </p>
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              {uploadPhase.phase === "error" ? uploadPhase.message : ""}
+            </p>
+            {uploadPhase.phase === "error" && uploadPhase.isNetwork && (
+              <div className="space-y-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-9 rounded-xl w-full"
+                  onClick={handleTestConnection}
+                  disabled={testingHealth}
+                >
+                  {testingHealth ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 animate-spin mr-2" />
+                      Testing connection…
+                    </>
+                  ) : (
+                    "Test connection"
+                  )}
+                </Button>
+                {healthTestResult && (
+                  <p
+                    className={cn(
+                      "text-xs px-3 py-2 rounded-lg",
+                      healthTestResult.includes("running")
+                        ? "bg-emerald-50 text-emerald-700"
+                        : "bg-rose-50 text-rose-700"
+                    )}
+                  >
+                    {healthTestResult}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
           <DialogFooter>
             <Button
               variant="outline"
               className="h-11 rounded-xl"
-              onClick={() => setUploadPhase({ phase: "idle" })}
+              onClick={() => {
+                setUploadPhase({ phase: "idle" });
+                setHealthTestResult(null);
+              }}
             >
-              Dismiss
+              Cancel
             </Button>
             <Button
               className="h-11 rounded-xl"
-              onClick={() => setUploadPhase({ phase: "choosing" })}
+              onClick={() => {
+                setHealthTestResult(null);
+                setUploadPhase({ phase: "choosing" });
+              }}
             >
               Try again
             </Button>

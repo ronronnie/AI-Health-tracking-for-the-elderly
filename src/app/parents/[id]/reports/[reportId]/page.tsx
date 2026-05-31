@@ -1,11 +1,13 @@
 "use client";
 
+import { useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useLiveQuery } from "dexie-react-hooks";
 import { format, parseISO } from "date-fns";
 import {
   ArrowLeft,
   Bell,
+  ChevronDown,
   Copy,
   Download,
   FileDown,
@@ -15,11 +17,12 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { useRef, useState } from "react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { db } from "@/lib/db";
 import type { LabValue, Report } from "@/lib/db";
+import type { ParsedReport, ParsedReportSource, PatternExplanation } from "@/lib/types";
+import { CitedText } from "@/components/cited-text";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -49,17 +52,35 @@ import {
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
-const TRAFFIC_LIGHT_STYLES = {
-  green: "bg-green-100 text-green-700 border-green-200",
-  yellow: "bg-amber-100 text-amber-700 border-amber-200",
-  red: "bg-red-100 text-red-700 border-red-200",
+const TL_CARD = {
+  green: "bg-emerald-50 border-emerald-200",
+  yellow: "bg-amber-50 border-amber-200",
+  red: "bg-rose-50 border-rose-200",
 } as const;
 
-const STATUS_BADGE: Record<string, string> = {
-  normal: "bg-green-50 text-green-700 border-green-200",
-  low: "bg-blue-50 text-blue-700 border-blue-200",
-  high: "bg-amber-50 text-amber-700 border-amber-200",
-  critical: "bg-red-50 text-red-700 border-red-200",
+const TL_TEXT = {
+  green: "text-emerald-700",
+  yellow: "text-amber-700",
+  red: "text-rose-700",
+} as const;
+
+const TL_DOT = {
+  green: "bg-emerald-500",
+  yellow: "bg-amber-500",
+  red: "bg-rose-500",
+} as const;
+
+const TL_PILL = {
+  green: "border-emerald-300 bg-emerald-100/60",
+  yellow: "border-amber-300 bg-amber-100/60",
+  red: "border-rose-300 bg-rose-100/60",
+} as const;
+
+const STATUS_ORDER: Record<string, number> = {
+  critical: 0,
+  high: 1,
+  low: 1,
+  normal: 2,
 };
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -89,6 +110,15 @@ function recomputeSummary(values: { status: string }[]) {
     trafficLight,
     abnormalCount: statuses.filter((s) => s !== "normal").length,
   };
+}
+
+function parseSources(sourcesJson?: string): ParsedReportSource[] {
+  if (!sourcesJson) return [];
+  try {
+    return JSON.parse(sourcesJson) as ParsedReportSource[];
+  } catch {
+    return [];
+  }
 }
 
 function buildShareText(
@@ -125,7 +155,126 @@ function buildShareText(
   return lines.join("\n");
 }
 
-// ── Edit value card sub-component ─────────────────────────────────────────
+// ── Sub-components ──────────────────────────────────────────────────────────
+
+function SourcePills({ sources }: { sources: ParsedReportSource[] }) {
+  if (sources.length === 0) return null;
+  return (
+    <div className="flex flex-wrap gap-1.5 pt-1">
+      {sources.map((s, i) => (
+        <span
+          key={i}
+          className="inline-flex items-center rounded border border-border bg-muted px-2 py-0.5 text-xs text-muted-foreground"
+          title={`Distance: ${s.distance.toFixed(4)}`}
+        >
+          {s.file} → {s.section}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function PatternCard({ pe }: { pe: PatternExplanation }) {
+  return (
+    <Card className="rounded-2xl">
+      <CardContent className="p-5 space-y-3">
+        <p className="text-base font-semibold text-foreground">{pe.pattern}</p>
+        <CitedText
+          text={pe.explanation}
+          className="text-sm text-muted-foreground leading-relaxed"
+        />
+        <SourcePills sources={pe.sources ?? []} />
+      </CardContent>
+    </Card>
+  );
+}
+
+function ValueCard({
+  lv,
+  expanded,
+  onToggle,
+}: {
+  lv: LabValue;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  const sources = parseSources(lv.sources);
+  const isAbnormal = lv.status !== "normal";
+  const hasCited = isAbnormal && !!lv.citedExplanation;
+
+  return (
+    <Card className="rounded-xl">
+      <CardContent className="p-4 space-y-2">
+        {/* Top row: name / value+unit */}
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <p className="font-semibold leading-snug">{lv.name}</p>
+            {lv.userEdited && (
+              <Pencil className="h-3 w-3 text-muted-foreground shrink-0" />
+            )}
+          </div>
+          <p className="font-mono text-sm shrink-0 tabular-nums">
+            {lv.value}
+            {lv.unit && (
+              <span className="text-muted-foreground ml-1 font-sans">{lv.unit}</span>
+            )}
+          </p>
+        </div>
+
+        {/* Reference range + status badge */}
+        <div className="flex items-center gap-2">
+          {lv.referenceRange && (
+            <p className="text-xs text-muted-foreground flex-1">
+              ref: {lv.referenceRange}
+            </p>
+          )}
+          <span
+            className={cn(
+              "inline-flex shrink-0 items-center rounded-full border px-2.5 py-0.5 text-xs font-medium capitalize ml-auto",
+              `status-${lv.status}`
+            )}
+          >
+            {lv.status}
+          </span>
+        </div>
+
+        {/* Brief explanation for normal values */}
+        {!isAbnormal && lv.explanation && (
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            {lv.explanation}
+          </p>
+        )}
+
+        {/* "Why this matters" expandable section for abnormals */}
+        {hasCited && (
+          <div className="border-t border-border/60 pt-2 mt-1">
+            <button
+              onClick={onToggle}
+              className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors w-full text-left h-8"
+            >
+              <ChevronDown
+                className={cn(
+                  "h-3.5 w-3.5 transition-transform duration-200",
+                  expanded && "rotate-180"
+                )}
+              />
+              Why this matters
+            </button>
+            {expanded && (
+              <div className="mt-2 space-y-3">
+                <CitedText
+                  text={lv.citedExplanation!}
+                  className="text-sm text-muted-foreground leading-relaxed"
+                />
+                <SourcePills sources={sources} />
+              </div>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 function EditValueCard({
   ev,
@@ -139,7 +288,6 @@ function EditValueCard({
   return (
     <Card>
       <CardContent className="p-4 space-y-3">
-        {/* Name row */}
         <div className="flex items-end gap-2">
           <div className="flex-1 space-y-1.5">
             <Label className="text-xs text-muted-foreground">Test Name</Label>
@@ -155,13 +303,10 @@ function EditValueCard({
             size="icon"
             className="h-10 w-10 shrink-0 text-destructive hover:text-destructive"
             onClick={onDelete}
-            aria-label="Delete value"
           >
             <Trash2 className="h-4 w-4" />
           </Button>
         </div>
-
-        {/* Value + Unit */}
         <div className="flex gap-2">
           <div className="flex-1 space-y-1.5">
             <Label className="text-xs text-muted-foreground">Value</Label>
@@ -182,8 +327,6 @@ function EditValueCard({
             />
           </div>
         </div>
-
-        {/* Reference range */}
         <div className="space-y-1.5">
           <Label className="text-xs text-muted-foreground">Reference Range</Label>
           <Input
@@ -193,8 +336,6 @@ function EditValueCard({
             className="h-10"
           />
         </div>
-
-        {/* Status */}
         <div className="space-y-1.5">
           <Label className="text-xs text-muted-foreground">Status</Label>
           <Select
@@ -241,6 +382,43 @@ export default function ReportDetailPage() {
     [parentId]
   );
 
+  // ── Parsed JSON (rich pattern explanations etc.) ─────────────────────────
+  const parsedReport = useMemo((): ParsedReport | null => {
+    if (!report?.parsedJson) return null;
+    try {
+      return JSON.parse(report.parsedJson) as ParsedReport;
+    } catch {
+      return null;
+    }
+  }, [report?.parsedJson]);
+
+  const patternExplanations = parsedReport?.summary?.pattern_explanations ?? [];
+
+  // ── Values display ────────────────────────────────────────────────────────
+  const hasAbnormals = labValues?.some((v) => v.status !== "normal") ?? false;
+  const [showAll, setShowAll] = useState(false);
+  const [expandedValues, setExpandedValues] = useState<Set<string>>(new Set());
+
+  const displayValues = useMemo(() => {
+    if (!labValues) return [];
+    const filtered =
+      showAll || !hasAbnormals
+        ? labValues
+        : labValues.filter((v) => v.status !== "normal");
+    return [...filtered].sort(
+      (a, b) => (STATUS_ORDER[a.status] ?? 2) - (STATUS_ORDER[b.status] ?? 2)
+    );
+  }, [labValues, showAll, hasAbnormals]);
+
+  function toggleExpanded(id: string) {
+    setExpandedValues((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
   // ── Delete state ─────────────────────────────────────────────────────────
   const [confirmDelete, setConfirmDelete] = useState(false);
 
@@ -276,9 +454,7 @@ export default function ReportDetailPage() {
 
   function updateEditValue(id: string, changes: Partial<EditableValue>) {
     setEditValues((prev) =>
-      prev.map((v) =>
-        v.id === id ? { ...v, ...changes, userEdited: true } : v
-      )
+      prev.map((v) => (v.id === id ? { ...v, ...changes, userEdited: true } : v))
     );
   }
 
@@ -312,14 +488,12 @@ export default function ReportDetailPage() {
       const { trafficLight, abnormalCount } = recomputeSummary(active);
 
       await db.transaction("rw", [db.reports, db.labValues], async () => {
-        // Delete removed values
         for (const ev of editValues.filter((v) => v.deleted && !v.isNew)) {
           await db.labValues.delete(ev.id);
         }
-
         for (const ev of active) {
           if (ev.isNew) {
-            if (!ev.name.trim()) continue; // skip blank placeholder rows
+            if (!ev.name.trim()) continue;
             await db.labValues.add({
               id: ev.id,
               reportId,
@@ -331,9 +505,7 @@ export default function ReportDetailPage() {
               userEdited: true,
             });
           } else {
-            const orig = originalValuesRef.current.find(
-              (o) => o.id === ev.id
-            );
+            const orig = originalValuesRef.current.find((o) => o.id === ev.id);
             const changed =
               !orig ||
               ev.name.trim() !== orig.name ||
@@ -341,7 +513,6 @@ export default function ReportDetailPage() {
               (ev.unit || undefined) !== orig.unit ||
               (ev.referenceRange || undefined) !== orig.referenceRange ||
               ev.status !== orig.status;
-
             await db.labValues.update(ev.id, {
               name: ev.name.trim(),
               value: ev.value,
@@ -352,7 +523,6 @@ export default function ReportDetailPage() {
             });
           }
         }
-
         await db.reports.update(reportId, { trafficLight, abnormalCount });
       });
 
@@ -368,7 +538,6 @@ export default function ReportDetailPage() {
   }
 
   // ── Share / export handlers ──────────────────────────────────────────────
-
   function handleCopyText() {
     if (!report || !labValues) return;
     const text = buildShareText(parent?.name, report, labValues);
@@ -383,19 +552,14 @@ export default function ReportDetailPage() {
     const text = buildShareText(parent?.name, report, labValues);
     if (navigator.share) {
       try {
-        await navigator.share({
-          title: `${parent?.name ?? "Patient"} Lab Report`,
-          text,
-        });
+        await navigator.share({ title: `${parent?.name ?? "Patient"} Lab Report`, text });
       } catch (e) {
-        if ((e as Error).name !== "AbortError") {
-          toast.error("Share failed");
-        }
+        if ((e as Error).name !== "AbortError") toast.error("Share failed");
       }
     } else {
       navigator.clipboard
         .writeText(text)
-        .then(() => toast.success("Copied to clipboard (Web Share not available)"))
+        .then(() => toast.success("Copied to clipboard"))
         .catch(() => toast.error("Could not copy to clipboard"));
     }
   }
@@ -418,10 +582,7 @@ export default function ReportDetailPage() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `ParentCare_${(parent?.name ?? "Report").replace(
-        /\s+/g,
-        "_"
-      )}_${report.reportDate}.pdf`;
+      a.download = `ParentCare_${(parent?.name ?? "Report").replace(/\s+/g, "_")}_${report.reportDate}.pdf`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -472,21 +633,19 @@ export default function ReportDetailPage() {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen gap-4">
         <p className="text-muted-foreground">Report not found.</p>
-        <Button onClick={() => router.replace(`/parents/${parentId}`)}>
-          Go back
-        </Button>
+        <Button onClick={() => router.replace(`/parents/${parentId}`)}>Go back</Button>
       </div>
     );
   }
 
-  // ── Render ─────────────────────────────────────────────────────────────
+  const tl = report.trafficLight;
   const activeEditValues = editValues.filter((v) => !v.deleted);
 
   return (
     <div className="flex flex-col min-h-screen">
       {/* Header */}
-      <header className="sticky top-0 z-40 bg-background border-b">
-        <div className="flex h-14 items-center justify-between px-4">
+      <header className="sticky top-0 z-40 bg-background/80 backdrop-blur-xl border-b border-border">
+        <div className="flex h-14 items-center justify-between px-3">
           {editMode ? (
             <>
               <Button
@@ -496,27 +655,20 @@ export default function ReportDetailPage() {
                 onClick={cancelEdit}
               >
                 <X className="h-5 w-5" />
-                <span className="sr-only">Cancel editing</span>
               </Button>
-              <span className="font-semibold text-base flex-1 text-center">
-                Edit Values
-              </span>
+              <span className="font-semibold text-base flex-1 text-center">Edit Values</span>
               <div className="w-11 shrink-0" />
             </>
           ) : (
             <>
               <Button
                 variant="ghost"
-                size="icon"
-                className="h-11 w-11 shrink-0"
+                className="gap-1 px-2 h-11 text-muted-foreground hover:text-foreground"
                 onClick={() => router.back()}
               >
                 <ArrowLeft className="h-5 w-5" />
-                <span className="sr-only">Back</span>
+                <span className="text-sm">Back</span>
               </Button>
-              <span className="font-semibold text-base truncate px-2 flex-1 text-center">
-                {parent?.name ?? "Report"}
-              </span>
               <div className="flex items-center gap-1">
                 <Button
                   variant="ghost"
@@ -527,8 +679,6 @@ export default function ReportDetailPage() {
                 >
                   <Pencil className="h-4 w-4" />
                 </Button>
-
-                {/* Share dropdown */}
                 <DropdownMenu>
                   <DropdownMenuTrigger
                     className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md hover:bg-accent hover:text-accent-foreground transition-colors focus-visible:outline-none"
@@ -550,15 +700,14 @@ export default function ReportDetailPage() {
                       <FileDown className="h-4 w-4" />
                       Download as PDF
                     </DropdownMenuItem>
-                    {report.originalFileBlob ? (
+                    {report.originalFileBlob && (
                       <DropdownMenuItem onClick={handleOriginalDownload}>
                         <Download className="h-4 w-4" />
                         Download original file
                       </DropdownMenuItem>
-                    ) : null}
+                    )}
                   </DropdownMenuContent>
                 </DropdownMenu>
-
                 <Button
                   variant="ghost"
                   size="icon"
@@ -566,7 +715,6 @@ export default function ReportDetailPage() {
                   onClick={() => setConfirmDelete(true)}
                 >
                   <Trash2 className="h-5 w-5" />
-                  <span className="sr-only">Delete</span>
                 </Button>
               </div>
             </>
@@ -577,52 +725,61 @@ export default function ReportDetailPage() {
       <main
         className={cn(
           "flex-1 px-4 py-6 space-y-6",
-          editMode ? "pb-28" : "pb-12"
+          editMode ? "pb-28" : "pb-16"
         )}
+        style={{ paddingBottom: editMode ? undefined : "calc(4rem + env(safe-area-inset-bottom))" }}
       >
-        {/* ── Summary card (read mode only) ─────────────────────────────── */}
+        {/* ── A. Header card ────────────────────────────────────────────── */}
         {!editMode && (
-          <Card>
-            <CardContent className="p-4 space-y-3">
-              <div className="flex items-start gap-3">
-                <span
-                  className={cn(
-                    "inline-flex shrink-0 items-center rounded-full border px-3 py-1 text-sm font-semibold capitalize",
-                    TRAFFIC_LIGHT_STYLES[report.trafficLight]
-                  )}
-                >
-                  {report.trafficLight === "green"
-                    ? "All Clear"
-                    : report.trafficLight === "yellow"
-                    ? "Review"
-                    : "Attention"}
-                </span>
-              </div>
-              <p className="text-base font-medium leading-snug">
+          <Card className={cn("rounded-2xl border-2", TL_CARD[tl])}>
+            <CardContent className="p-5 space-y-3">
+              {/* Traffic light pill + headline */}
+              <div
+                className={cn(
+                  "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-semibold",
+                  TL_PILL[tl],
+                  TL_TEXT[tl]
+                )}
+              >
+                <span className={cn("h-2 w-2 rounded-full shrink-0", TL_DOT[tl])} />
                 {report.headline}
-              </p>
-              <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
-                <span>{format(parseISO(report.reportDate), "d MMMM yyyy")}</span>
-                {report.labName && <span>{report.labName}</span>}
-                {report.testPanel && <span>{report.testPanel}</span>}
               </div>
-              {report.abnormalCount > 0 && (
-                <Badge variant="destructive" className="w-fit">
-                  {report.abnormalCount} abnormal value
-                  {report.abnormalCount !== 1 ? "s" : ""}
-                </Badge>
-              )}
+              {/* Test panel */}
+              <h1
+                className={cn(
+                  "text-2xl font-semibold tracking-tight leading-snug",
+                  TL_TEXT[tl]
+                )}
+              >
+                {report.testPanel ?? "Lab Report"}
+              </h1>
+              {/* Meta row */}
+              <p className={cn("text-sm opacity-70", TL_TEXT[tl])}>
+                {[
+                  report.labName,
+                  format(parseISO(report.reportDate), "d MMM yyyy"),
+                  `${report.abnormalCount} abnormal of ${labValues.length} value${labValues.length !== 1 ? "s" : ""}`,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </p>
             </CardContent>
           </Card>
         )}
 
-        {/* ── Patterns (read mode only) ─────────────────────────────────── */}
+        {/* ── B. Patterns section ───────────────────────────────────────── */}
         {!editMode && (
           <section>
-            <h2 className="text-base font-semibold mb-3">Patterns Detected</h2>
-            {report.patternsDetected.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No patterns flagged.</p>
-            ) : (
+            <h2 className="text-lg font-semibold tracking-tight mb-3">
+              Patterns Detected
+            </h2>
+            {patternExplanations.length > 0 ? (
+              <div className="flex flex-col gap-3">
+                {patternExplanations.map((pe, i) => (
+                  <PatternCard key={i} pe={pe} />
+                ))}
+              </div>
+            ) : report.patternsDetected.length > 0 ? (
               <div className="flex flex-wrap gap-2">
                 {report.patternsDetected.map((p, i) => (
                   <span
@@ -633,16 +790,47 @@ export default function ReportDetailPage() {
                   </span>
                 ))}
               </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">No patterns flagged.</p>
             )}
           </section>
         )}
 
-        {/* ── Values section ────────────────────────────────────────────── */}
+        {/* ── C. Values section ─────────────────────────────────────────── */}
         <section>
-          <h2 className="text-base font-semibold mb-3">Values</h2>
+          <div className="flex items-center justify-between mb-3 gap-3">
+            <h2 className="text-lg font-semibold tracking-tight shrink-0">
+              {editMode ? "Values" : "All Values"}
+            </h2>
+            {!editMode && hasAbnormals && (
+              <div className="flex items-center rounded-xl border bg-muted/60 p-0.5 gap-0.5">
+                <button
+                  onClick={() => setShowAll(false)}
+                  className={cn(
+                    "px-3 py-1 text-xs rounded-lg font-medium transition-all",
+                    !showAll
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground"
+                  )}
+                >
+                  Abnormal only
+                </button>
+                <button
+                  onClick={() => setShowAll(true)}
+                  className={cn(
+                    "px-3 py-1 text-xs rounded-lg font-medium transition-all",
+                    showAll
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground"
+                  )}
+                >
+                  Show all
+                </button>
+              </div>
+            )}
+          </div>
 
           {editMode ? (
-            /* ── Edit mode: stacked edit cards ── */
             <div className="flex flex-col gap-3">
               {activeEditValues.length === 0 ? (
                 <p className="text-sm text-muted-foreground py-4 text-center">
@@ -658,11 +846,7 @@ export default function ReportDetailPage() {
                   />
                 ))
               )}
-              <Button
-                variant="outline"
-                className="h-11 mt-1"
-                onClick={addEditValue}
-              >
+              <Button variant="outline" className="h-11 mt-1" onClick={addEditValue}>
                 <Plus className="h-4 w-4 mr-2" />
                 Add value
               </Button>
@@ -670,128 +854,47 @@ export default function ReportDetailPage() {
           ) : labValues.length === 0 ? (
             <p className="text-sm text-muted-foreground">No values recorded.</p>
           ) : (
-            <>
-              {/* Desktop table */}
-              <div className="hidden sm:block overflow-x-auto rounded-lg border">
-                <table className="w-full text-sm">
-                  <thead className="bg-muted/50">
-                    <tr>
-                      <th className="text-left font-medium px-4 py-3">Test</th>
-                      <th className="text-left font-medium px-4 py-3">Result</th>
-                      <th className="text-left font-medium px-4 py-3">
-                        Reference
-                      </th>
-                      <th className="text-left font-medium px-4 py-3">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y">
-                    {labValues.map((lv) => (
-                      <tr key={lv.id} className="align-top">
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-1.5">
-                            <p className="font-medium">{lv.name}</p>
-                            {lv.userEdited && (
-                              <Pencil className="h-3 w-3 text-muted-foreground shrink-0" />
-                            )}
-                          </div>
-                          {lv.explanation && (
-                            <p className="text-xs text-muted-foreground mt-0.5 max-w-xs">
-                              {lv.explanation}
-                            </p>
-                          )}
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap">
-                          {lv.value}
-                          {lv.unit && (
-                            <span className="text-muted-foreground ml-1">
-                              {lv.unit}
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">
-                          {lv.referenceRange ?? "—"}
-                        </td>
-                        <td className="px-4 py-3">
-                          <span
-                            className={cn(
-                              "inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium capitalize",
-                              STATUS_BADGE[lv.status] ?? ""
-                            )}
-                          >
-                            {lv.status}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              {/* Mobile stacked cards */}
-              <div className="flex sm:hidden flex-col gap-3">
-                {labValues.map((lv) => (
-                  <Card key={lv.id}>
-                    <CardContent className="p-4 space-y-2">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="flex items-center gap-1.5 min-w-0">
-                          <p className="font-medium truncate">{lv.name}</p>
-                          {lv.userEdited && (
-                            <Pencil className="h-3 w-3 text-muted-foreground shrink-0" />
-                          )}
-                        </div>
-                        <span
-                          className={cn(
-                            "inline-flex shrink-0 items-center rounded-full border px-2.5 py-0.5 text-xs font-medium capitalize",
-                            STATUS_BADGE[lv.status] ?? ""
-                          )}
-                        >
-                          {lv.status}
-                        </span>
-                      </div>
-                      <p className="text-sm">
-                        <span className="font-medium">{lv.value}</span>
-                        {lv.unit && (
-                          <span className="text-muted-foreground ml-1">
-                            {lv.unit}
-                          </span>
-                        )}
-                        {lv.referenceRange && (
-                          <span className="text-muted-foreground">
-                            {" "}
-                            · ref: {lv.referenceRange}
-                          </span>
-                        )}
-                      </p>
-                      {lv.explanation && (
-                        <p className="text-xs text-muted-foreground leading-relaxed">
-                          {lv.explanation}
-                        </p>
-                      )}
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            </>
+            <div className="flex flex-col gap-3">
+              {displayValues.map((lv) => (
+                <ValueCard
+                  key={lv.id}
+                  lv={lv}
+                  expanded={expandedValues.has(lv.id)}
+                  onToggle={() => toggleExpanded(lv.id)}
+                />
+              ))}
+              {!showAll && hasAbnormals && labValues.length > displayValues.length && (
+                <button
+                  onClick={() => setShowAll(true)}
+                  className="text-sm text-muted-foreground hover:text-foreground transition-colors text-center py-2"
+                >
+                  + {labValues.length - displayValues.length} normal value
+                  {labValues.length - displayValues.length !== 1 ? "s" : ""} hidden
+                </button>
+              )}
+            </div>
           )}
         </section>
 
-        {/* ── Next steps (read mode only) ───────────────────────────────── */}
+        {/* ── D. Next steps ─────────────────────────────────────────────── */}
         {!editMode && report.nextSteps && (
           <section>
-            <h2 className="text-base font-semibold mb-3">Next Steps</h2>
-            <div className="rounded-lg bg-amber-50 border border-amber-200 px-4 py-3">
-              <p className="text-sm leading-relaxed text-amber-900">
-                {report.nextSteps}
-              </p>
-            </div>
+            <h2 className="text-lg font-semibold tracking-tight mb-3">Next Steps</h2>
+            <Card className="rounded-2xl bg-accent border-accent">
+              <CardContent className="p-5">
+                <p className="text-sm leading-relaxed text-accent-foreground">
+                  {report.nextSteps}
+                </p>
+              </CardContent>
+            </Card>
           </section>
         )}
 
-        {/* ── Remind me button (read mode only) ────────────────────────── */}
+        {/* ── Remind me ─────────────────────────────────────────────────── */}
         {!editMode && (
           <Button
             variant="outline"
-            className="w-full h-11"
+            className="w-full h-12 rounded-xl"
             onClick={() => {
               const title = encodeURIComponent(
                 `Repeat ${report.testPanel ?? "tests"} for ${parent?.name ?? "parent"}`
@@ -804,46 +907,40 @@ export default function ReportDetailPage() {
           </Button>
         )}
 
-        {/* ── Parse cost (read mode only) ───────────────────────────────── */}
-        {!editMode && report.parseCostInr != null && (
-          <p className="text-xs text-muted-foreground">
-            This parse cost ₹{report.parseCostInr.toFixed(2)}{" "}
-            <span className="opacity-60">
-              (
-              {report.parseCostInr > 0
-                ? `≈ $${(report.parseCostInr / 84).toFixed(4)}`
-                : "free"}
-              )
-            </span>
-          </p>
-        )}
-
-        {/* ── Disclaimer (read mode only) ───────────────────────────────── */}
-        {!editMode && report.disclaimer && (
-          <p className="text-xs text-muted-foreground/70 leading-relaxed border-t pt-4">
-            {report.disclaimer}
-          </p>
+        {/* ── E. Cost + disclaimer ──────────────────────────────────────── */}
+        {!editMode && (
+          <div className="space-y-3 border-t pt-4">
+            {report.parseCostInr != null && (
+              <p className="text-xs text-muted-foreground">
+                Parsed using the medical reference corpus · RAG enrichment cost: ~₹
+                {report.parseCostInr.toFixed(2)}
+              </p>
+            )}
+            {report.disclaimer && (
+              <p className="text-xs text-muted-foreground/70 italic leading-relaxed">
+                {report.disclaimer}
+              </p>
+            )}
+          </div>
         )}
       </main>
 
-      {/* ── Sticky save bar (edit mode only) ─────────────────────────────── */}
+      {/* ── Sticky save bar (edit mode) ───────────────────────────────────── */}
       {editMode && (
         <div
           className="fixed bottom-0 left-0 right-0 z-50 bg-background border-t px-4 pt-3 flex gap-3"
-          style={{
-            paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))",
-          }}
+          style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}
         >
           <Button
             variant="outline"
-            className="flex-1 h-11"
+            className="flex-1 h-12 rounded-xl"
             onClick={cancelEdit}
             disabled={saving}
           >
             Cancel
           </Button>
           <Button
-            className="flex-1 h-11"
+            className="flex-1 h-12 rounded-xl"
             onClick={saveEdits}
             disabled={saving}
           >
@@ -852,27 +949,27 @@ export default function ReportDetailPage() {
         </div>
       )}
 
-      {/* ── Delete confirmation dialog ────────────────────────────────────── */}
+      {/* ── Delete confirmation ───────────────────────────────────────────── */}
       <Dialog open={confirmDelete} onOpenChange={setConfirmDelete}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Delete this report?</DialogTitle>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
-            This will permanently delete the report and all its values. This
-            cannot be undone.
+            This will permanently delete the report and all its values. This cannot be
+            undone.
           </p>
           <DialogFooter>
             <Button
               variant="outline"
-              className="h-11"
+              className="h-12 rounded-xl"
               onClick={() => setConfirmDelete(false)}
             >
               Cancel
             </Button>
             <Button
               variant="destructive"
-              className="h-11"
+              className="h-12 rounded-xl"
               onClick={handleDelete}
             >
               Delete
