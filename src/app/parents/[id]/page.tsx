@@ -1,0 +1,730 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import { useParams, useRouter } from "next/navigation";
+import { useLiveQuery } from "dexie-react-hooks";
+import {
+  differenceInYears,
+  format,
+  formatDistanceToNow,
+  isToday,
+  isPast,
+  isSameDay,
+  addDays,
+  parseISO,
+} from "date-fns";
+import {
+  ArrowLeft,
+  Camera,
+  Check,
+  ChevronRight,
+  FileText,
+  Loader2,
+  Pencil,
+  Plus,
+} from "lucide-react";
+import { toast } from "sonner";
+import { cn } from "@/lib/utils";
+import { db } from "@/lib/db";
+import type { ParseApiResponse } from "@/lib/types";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
+import { Textarea } from "@/components/ui/textarea";
+
+// ── Constants ──────────────────────────────────────────────────────────────
+
+const BLOOD_TYPES = ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-", "Unknown"];
+
+const TRAFFIC_LIGHT_STYLES = {
+  green: "bg-green-100 text-green-700 border-green-200",
+  yellow: "bg-amber-100 text-amber-700 border-amber-200",
+  red: "bg-red-100 text-red-700 border-red-200",
+} as const;
+
+// ── Types ──────────────────────────────────────────────────────────────────
+
+type UploadPhase =
+  | { phase: "idle" }
+  | { phase: "choosing" }
+  | { phase: "parsing" }
+  | { phase: "error"; message: string };
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+
+function ageLabel(dob: string) {
+  return `${differenceInYears(new Date(), parseISO(dob))} years`;
+}
+
+// ── Page ───────────────────────────────────────────────────────────────────
+
+export default function ParentDetailPage() {
+  const params = useParams();
+  const router = useRouter();
+  const id = params.id as string;
+
+  // ── Queries ──────────────────────────────────────────────────────────────
+  const parent = useLiveQuery(
+    async () => (await db.parents.get(id)) ?? null,
+    [id]
+  );
+
+  const reports = useLiveQuery(
+    async () => {
+      const all = await db.reports.where("parentId").equals(id).toArray();
+      return all.sort((a, b) => b.reportDate.localeCompare(a.reportDate));
+    },
+    [id]
+  );
+
+  const reminders = useLiveQuery(
+    async () => {
+      const all = await db.reminders.where("parentId").equals(id).toArray();
+      return all
+        .filter((r) => !r.isCompleted)
+        .sort((a, b) => a.scheduledDate.localeCompare(b.scheduledDate));
+    },
+    [id]
+  );
+
+  // ── Edit dialog state ────────────────────────────────────────────────────
+  const [editOpen, setEditOpen] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [name, setName] = useState("");
+  const [dob, setDob] = useState("");
+  const [gender, setGender] = useState("");
+  const [bloodType, setBloodType] = useState("");
+  const [notes, setNotes] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!editOpen) setConfirmDelete(false);
+  }, [editOpen]);
+
+  function openEdit() {
+    if (!parent) return;
+    setName(parent.name);
+    setDob(parent.dateOfBirth ?? "");
+    setGender(parent.gender ?? "");
+    setBloodType(parent.bloodType ?? "");
+    setNotes(parent.notes ?? "");
+    setEditOpen(true);
+  }
+
+  async function handleSave() {
+    if (!name.trim()) return;
+    setSaving(true);
+    try {
+      await db.parents.update(id, {
+        name: name.trim(),
+        dateOfBirth: dob || undefined,
+        gender:
+          gender && gender !== "_none"
+            ? (gender as "male" | "female" | "other")
+            : undefined,
+        bloodType: bloodType || undefined,
+        notes: notes.trim() || undefined,
+      });
+      toast.success("Changes saved");
+      setEditOpen(false);
+    } catch {
+      toast.error("Failed to save changes");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDeleteParent() {
+    try {
+      await db.transaction(
+        "rw",
+        [db.parents, db.reports, db.labValues, db.reminders],
+        async () => {
+          const allReports = await db.reports.where("parentId").equals(id).toArray();
+          for (const r of allReports) {
+            await db.labValues.where("reportId").equals(r.id).delete();
+          }
+          await db.reports.where("parentId").equals(id).delete();
+          await db.reminders.where("parentId").equals(id).delete();
+          await db.parents.delete(id);
+        }
+      );
+      toast.success("Parent deleted");
+      router.replace("/");
+    } catch {
+      toast.error("Failed to delete");
+    }
+  }
+
+  // ── Upload / parse flow ──────────────────────────────────────────────────
+  const [uploadPhase, setUploadPhase] = useState<UploadPhase>({ phase: "idle" });
+  const photoInputRef = useRef<HTMLInputElement>(null);
+  const pdfInputRef = useRef<HTMLInputElement>(null);
+
+  async function processFile(file: File) {
+    setUploadPhase({ phase: "parsing" });
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    let result: ParseApiResponse;
+    try {
+      const res = await fetch("/api/parse", { method: "POST", body: formData });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({ error: "Server error" }));
+        setUploadPhase({ phase: "error", message: body.error ?? "Something went wrong." });
+        return;
+      }
+      result = (await res.json()) as ParseApiResponse;
+    } catch {
+      setUploadPhase({
+        phase: "error",
+        message: "Could not reach the server. Check your internet connection.",
+      });
+      return;
+    }
+
+    // ── Save to Dexie ────────────────────────────────────────────────────
+    const reportId = crypto.randomUUID();
+    const { parsed, usage } = result;
+
+    try {
+      await db.transaction("rw", [db.reports, db.labValues], async () => {
+        await db.reports.add({
+          id: reportId,
+          parentId: id,
+          reportDate: parsed.reportDate ?? new Date().toISOString().split("T")[0],
+          labName: parsed.labName,
+          testPanel: parsed.testPanel,
+          originalFileName: file.name,
+          originalFileBlob: file,
+          trafficLight: parsed.trafficLight ?? "yellow",
+          headline: parsed.headline ?? "Report parsed",
+          abnormalCount: parsed.abnormalCount ?? 0,
+          patternsDetected: parsed.patternsDetected ?? [],
+          nextSteps: parsed.nextSteps ?? "",
+          disclaimer: parsed.disclaimer ?? "",
+          parseCostInr: usage?.est_cost_inr,
+          createdAt: new Date().toISOString(),
+        });
+
+        for (const lv of parsed.labValues ?? []) {
+          await db.labValues.add({
+            id: crypto.randomUUID(),
+            reportId,
+            name: lv.name,
+            value: lv.value,
+            unit: lv.unit,
+            referenceRange: lv.referenceRange,
+            status: lv.status ?? "normal",
+            explanation: lv.explanation,
+            userEdited: false,
+          });
+        }
+      });
+    } catch (e) {
+      const detail = e instanceof Error ? e.message : String(e);
+      console.error("Dexie save error:", e);
+      setUploadPhase({
+        phase: "error",
+        message: `Parsed OK but save failed: ${detail}`,
+      });
+      return;
+    }
+
+    setUploadPhase({ phase: "idle" });
+    router.push(`/parents/${id}/reports/${reportId}`);
+  }
+
+  function handlePhotoChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // reset so same file can be re-selected
+    if (file) processFile(file);
+  }
+
+  function handlePdfChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (file) processFile(file);
+  }
+
+  // ── Loading / not-found ──────────────────────────────────────────────────
+  if (parent === undefined) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <p className="text-sm text-muted-foreground">Loading…</p>
+      </div>
+    );
+  }
+
+  if (parent === null) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen gap-4">
+        <p className="text-muted-foreground">Parent not found.</p>
+        <Button onClick={() => router.replace("/")}>Go home</Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col min-h-screen">
+      {/* Header */}
+      <header className="sticky top-0 z-40 bg-background border-b">
+        <div className="flex h-14 items-center justify-between px-4">
+          <div className="flex items-center gap-2 min-w-0">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-11 w-11 shrink-0"
+              onClick={() => router.back()}
+            >
+              <ArrowLeft className="h-5 w-5" />
+              <span className="sr-only">Back</span>
+            </Button>
+            <h1 className="font-semibold text-lg truncate">{parent.name}</h1>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-11 w-11 shrink-0"
+            onClick={openEdit}
+            aria-label="Edit parent"
+          >
+            <Pencil className="h-5 w-5" />
+          </Button>
+        </div>
+      </header>
+
+      <main className="flex-1 px-4 py-6 space-y-6">
+        {/* Info card */}
+        <Card>
+          <CardContent className="p-4 space-y-2">
+            {(parent.gender || parent.bloodType) && (
+              <div className="flex items-center gap-2 flex-wrap">
+                {parent.gender && (
+                  <Badge variant="secondary" className="capitalize">
+                    {parent.gender}
+                  </Badge>
+                )}
+                {parent.bloodType && (
+                  <Badge variant="outline">{parent.bloodType}</Badge>
+                )}
+              </div>
+            )}
+            {parent.dateOfBirth && (
+              <p className="text-sm text-muted-foreground">
+                Born {format(parseISO(parent.dateOfBirth), "d MMMM yyyy")}
+                <span className="mx-2">·</span>
+                {ageLabel(parent.dateOfBirth)}
+              </p>
+            )}
+            {parent.notes && (
+              <p className="text-sm text-foreground/80 whitespace-pre-wrap leading-relaxed">
+                {parent.notes}
+              </p>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Reports section */}
+        <section>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-lg font-semibold">Reports</h2>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-10"
+              onClick={() => setUploadPhase({ phase: "choosing" })}
+            >
+              <Plus className="h-4 w-4 mr-1" />
+              Add Report
+            </Button>
+          </div>
+
+          {!reports || reports.length === 0 ? (
+            <div className="flex items-center justify-center py-10 rounded-lg border bg-muted/30">
+              <p className="text-sm text-muted-foreground">No reports yet</p>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-3">
+              {reports.map((report) => (
+                <Card
+                  key={report.id}
+                  className="cursor-pointer hover:shadow-md transition-shadow active:scale-[0.99]"
+                  onClick={() =>
+                    router.push(`/parents/${id}/reports/${report.id}`)
+                  }
+                >
+                  <CardContent className="p-4 flex items-center gap-3">
+                    <span
+                      className={cn(
+                        "inline-flex shrink-0 items-center rounded-full border px-2.5 py-1 text-xs font-semibold",
+                        TRAFFIC_LIGHT_STYLES[report.trafficLight]
+                      )}
+                    >
+                      {report.trafficLight === "green"
+                        ? "Clear"
+                        : report.trafficLight === "yellow"
+                        ? "Review"
+                        : "Attn"}
+                    </span>
+
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium">
+                        {format(parseISO(report.reportDate), "d MMM yyyy")}
+                      </p>
+                      {report.labName && (
+                        <p className="text-xs text-muted-foreground truncate">
+                          {report.labName}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      {report.abnormalCount > 0 && (
+                        <Badge variant="destructive" className="text-xs">
+                          {report.abnormalCount} abnormal
+                        </Badge>
+                      )}
+                      <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+        </section>
+
+        {/* Reminders section */}
+        <section>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-lg font-semibold">Reminders</h2>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-10"
+              onClick={() => router.push(`/parents/${id}/reminders/new`)}
+            >
+              <Plus className="h-4 w-4 mr-1" />
+              Add Reminder
+            </Button>
+          </div>
+
+          {!reminders || reminders.length === 0 ? (
+            <div className="flex items-center justify-center py-10 rounded-lg border bg-muted/30">
+              <p className="text-sm text-muted-foreground">No reminders yet</p>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {reminders.map((r) => {
+                const date = new Date(r.scheduledDate);
+                const overdue = isPast(date) && !isToday(date);
+                let label: string;
+                if (overdue) {
+                  label = `Overdue by ${formatDistanceToNow(date)}`;
+                } else if (isToday(date)) {
+                  label = `Today at ${format(date, "h:mm a")}`;
+                } else if (isSameDay(date, addDays(new Date(), 1))) {
+                  label = `Tomorrow at ${format(date, "h:mm a")}`;
+                } else {
+                  label = formatDistanceToNow(date, { addSuffix: true });
+                }
+                return (
+                  <div
+                    key={r.id}
+                    className="flex items-start gap-3 rounded-lg border bg-card px-4 py-3"
+                  >
+                    <button
+                      className="mt-0.5 h-6 w-6 shrink-0 rounded-full border-2 border-muted-foreground/30 hover:border-primary flex items-center justify-center transition-colors"
+                      onClick={async () => {
+                        await db.reminders.update(r.id, { isCompleted: true });
+                        toast.success("Marked as done");
+                      }}
+                      aria-label="Mark complete"
+                    >
+                      <span className="sr-only">Done</span>
+                    </button>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium leading-snug">{r.title}</p>
+                      {r.notes && (
+                        <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                          {r.notes}
+                        </p>
+                      )}
+                      <p
+                        className={
+                          overdue
+                            ? "text-xs mt-1 font-medium text-destructive"
+                            : "text-xs mt-1 text-muted-foreground"
+                        }
+                      >
+                        {label}
+                      </p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
+      </main>
+
+      {/* ── Hidden file inputs ──────────────────────────────────────────── */}
+      <input
+        ref={photoInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="sr-only"
+        tabIndex={-1}
+        onChange={handlePhotoChange}
+      />
+      <input
+        ref={pdfInputRef}
+        type="file"
+        accept="application/pdf"
+        className="sr-only"
+        tabIndex={-1}
+        onChange={handlePdfChange}
+      />
+
+      {/* ── Upload choosing dialog ──────────────────────────────────────── */}
+      <Dialog
+        open={uploadPhase.phase === "choosing"}
+        onOpenChange={(open) => {
+          if (!open) setUploadPhase({ phase: "idle" });
+        }}
+      >
+        <DialogContent showCloseButton={false}>
+          <DialogHeader>
+            <DialogTitle>Add Report</DialogTitle>
+          </DialogHeader>
+          <div className="flex flex-col gap-3 py-1">
+            <Button
+              variant="outline"
+              className="h-12 justify-start gap-3 text-base font-normal"
+              onClick={() => {
+                setUploadPhase({ phase: "idle" });
+                // small delay so dialog close animation doesn't block native file picker
+                setTimeout(() => photoInputRef.current?.click(), 100);
+              }}
+            >
+              <Camera className="h-5 w-5 shrink-0" />
+              Take photo or choose photo
+            </Button>
+            <Button
+              variant="outline"
+              className="h-12 justify-start gap-3 text-base font-normal"
+              onClick={() => {
+                setUploadPhase({ phase: "idle" });
+                setTimeout(() => pdfInputRef.current?.click(), 100);
+              }}
+            >
+              <FileText className="h-5 w-5 shrink-0" />
+              Upload PDF
+            </Button>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              className="h-11"
+              onClick={() => setUploadPhase({ phase: "idle" })}
+            >
+              Cancel
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Parsing overlay ─────────────────────────────────────────────── */}
+      {uploadPhase.phase === "parsing" && (
+        <div className="fixed inset-0 z-50 bg-background/95 backdrop-blur-sm flex flex-col items-center justify-center gap-5 px-8 text-center">
+          <Loader2 className="h-10 w-10 animate-spin text-primary" />
+          <div className="space-y-1">
+            <p className="text-lg font-semibold">Reading the report…</p>
+            <p className="text-sm text-muted-foreground">
+              This usually takes 10–20 seconds.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* ── Error dialog ────────────────────────────────────────────────── */}
+      <Dialog
+        open={uploadPhase.phase === "error"}
+        onOpenChange={(open) => {
+          if (!open) setUploadPhase({ phase: "idle" });
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Could not parse report</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            {uploadPhase.phase === "error" ? uploadPhase.message : ""}
+          </p>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              className="h-11"
+              onClick={() => setUploadPhase({ phase: "idle" })}
+            >
+              Dismiss
+            </Button>
+            <Button
+              className="h-11"
+              onClick={() => setUploadPhase({ phase: "choosing" })}
+            >
+              Try again
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Edit dialog ─────────────────────────────────────────────────── */}
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent className="max-h-[90dvh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Edit {parent.name}</DialogTitle>
+          </DialogHeader>
+
+          {!confirmDelete ? (
+            <>
+              <div className="space-y-4 py-1">
+                <div className="space-y-1.5">
+                  <Label htmlFor="edit-name">Full Name *</Label>
+                  <Input
+                    id="edit-name"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    className="h-11"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="edit-dob">Date of Birth</Label>
+                  <Input
+                    id="edit-dob"
+                    type="date"
+                    value={dob}
+                    onChange={(e) => setDob(e.target.value)}
+                    className="h-11"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Gender</Label>
+                  <Select
+                    value={gender}
+                    onValueChange={(v) => setGender(v ?? "")}
+                  >
+                    <SelectTrigger className="h-11">
+                      <SelectValue placeholder="Select gender" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="male">Male</SelectItem>
+                      <SelectItem value="female">Female</SelectItem>
+                      <SelectItem value="other">Other</SelectItem>
+                      <SelectItem value="_none">Prefer not to say</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Blood Type</Label>
+                  <Select
+                    value={bloodType}
+                    onValueChange={(v) => setBloodType(v ?? "")}
+                  >
+                    <SelectTrigger className="h-11">
+                      <SelectValue placeholder="Select blood type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {BLOOD_TYPES.map((t) => (
+                        <SelectItem key={t} value={t}>
+                          {t}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="edit-notes">Notes</Label>
+                  <Textarea
+                    id="edit-notes"
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    rows={3}
+                    className="resize-none"
+                  />
+                </div>
+                <Separator />
+                <Button
+                  variant="destructive"
+                  className="w-full h-11"
+                  onClick={() => setConfirmDelete(true)}
+                >
+                  Delete Parent
+                </Button>
+              </div>
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  className="h-11"
+                  onClick={() => setEditOpen(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  className="h-11"
+                  onClick={handleSave}
+                  disabled={!name.trim() || saving}
+                >
+                  {saving ? "Saving…" : "Save Changes"}
+                </Button>
+              </DialogFooter>
+            </>
+          ) : (
+            <div className="py-2 space-y-4">
+              <p className="text-sm text-muted-foreground">
+                This will permanently delete{" "}
+                <strong className="text-foreground">{parent.name}</strong> and
+                all their reports and reminders. This cannot be undone.
+              </p>
+              <div className="flex gap-3">
+                <Button
+                  variant="outline"
+                  className="flex-1 h-11"
+                  onClick={() => setConfirmDelete(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="destructive"
+                  className="flex-1 h-11"
+                  onClick={handleDeleteParent}
+                >
+                  Delete
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
