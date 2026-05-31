@@ -1,32 +1,67 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 
-// Matches: [some_file.md -> Section Name]
-const CITATION_RE = /\[([^\]]+?\.(?:md|pdf|txt))\s*->\s*([^\]]+?)\]/g;
+// ── Token types ─────────────────────────────────────────────────────────────
 
-type Part =
-  | { type: "text"; content: string }
-  | { type: "citation"; file: string; section: string };
+type Token =
+  | { kind: "text"; text: string }
+  | { kind: "bold"; text: string }
+  | { kind: "heading"; text: string }
+  | { kind: "newline" }
+  | { kind: "citation"; file: string; section: string };
 
-function parseCitations(text: string): Part[] {
-  const parts: Part[] = [];
-  let lastIndex = 0;
-  const re = new RegExp(CITATION_RE.source, "g");
-  let match: RegExpExecArray | null;
-  while ((match = re.exec(text)) !== null) {
-    if (match.index > lastIndex) {
-      parts.push({ type: "text", content: text.slice(lastIndex, match.index) });
+// ── Tokenizer: handles markdown bold/headings + [file.md -> Section] ────────
+
+function tokenizeRichText(input: string): Token[] {
+  const raw: Token[] = [];
+  const lines = input.split("\n");
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    // Block headings: # text
+    const headingMatch = line.match(/^#{1,6}\s+(.+)$/);
+    if (headingMatch) {
+      const clean = headingMatch[1].replace(/\*\*([^*]+)\*\*/g, "$1").trim();
+      raw.push({ kind: "heading", text: clean });
+    } else {
+      // Inline: **bold** and [file.md -> Section]
+      // Create a fresh regex each iteration to avoid shared lastIndex state
+      const INLINE =
+        /\*\*([^*\n]+?)\*\*|\[([^\]]+?\.(?:md|pdf|txt))\s*->\s*([^\]]+?)\]/g;
+      let lastIdx = 0;
+      let m: RegExpExecArray | null;
+      while ((m = INLINE.exec(line)) !== null) {
+        if (m.index > lastIdx) {
+          raw.push({ kind: "text", text: line.slice(lastIdx, m.index) });
+        }
+        if (m[1] !== undefined) {
+          raw.push({ kind: "bold", text: m[1] });
+        } else {
+          raw.push({ kind: "citation", file: m[2].trim(), section: m[3].trim() });
+        }
+        lastIdx = m.index + m[0].length;
+      }
+      if (lastIdx < line.length) {
+        raw.push({ kind: "text", text: line.slice(lastIdx) });
+      }
     }
-    parts.push({ type: "citation", file: match[1].trim(), section: match[2].trim() });
-    lastIndex = match.index + match[0].length;
+
+    if (i < lines.length - 1) raw.push({ kind: "newline" });
   }
-  if (lastIndex < text.length) {
-    parts.push({ type: "text", content: text.slice(lastIndex) });
+
+  // Collapse consecutive newlines into one
+  const tokens: Token[] = [];
+  for (const tok of raw) {
+    if (tok.kind === "newline" && tokens[tokens.length - 1]?.kind === "newline") continue;
+    tokens.push(tok);
   }
-  return parts;
+  return tokens;
 }
+
+// ── Citation badge ──────────────────────────────────────────────────────────
 
 function CitationBadge({ file, section }: { file: string; section: string }) {
   const [open, setOpen] = useState(false);
@@ -34,13 +69,11 @@ function CitationBadge({ file, section }: { file: string; section: string }) {
 
   useEffect(() => {
     if (!open) return;
-    function onOutsideClick(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
+    function onOutside(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
     }
-    document.addEventListener("mousedown", onOutsideClick);
-    return () => document.removeEventListener("mousedown", onOutsideClick);
+    document.addEventListener("mousedown", onOutside);
+    return () => document.removeEventListener("mousedown", onOutside);
   }, [open]);
 
   return (
@@ -48,23 +81,25 @@ function CitationBadge({ file, section }: { file: string; section: string }) {
       <button
         onClick={() => setOpen((v) => !v)}
         className={cn(
-          "inline-flex items-center rounded border px-1.5 py-0.5 text-xs font-medium transition-colors mx-0.5 cursor-pointer",
+          "inline-flex items-center rounded border px-1 py-px text-[10px] font-medium leading-tight transition-colors mx-0.5 cursor-pointer",
           open
-            ? "border-primary/40 bg-primary/10 text-primary"
-            : "border-border bg-muted text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+            ? "border-primary/30 bg-primary/10 text-primary"
+            : "border-border/70 bg-muted/70 text-muted-foreground/80 hover:bg-accent hover:text-accent-foreground"
         )}
       >
         {section}
       </button>
       {open && (
-        <span className="absolute bottom-full left-0 z-50 mb-1.5 w-56 rounded-xl border bg-card p-3 shadow-lg text-xs whitespace-normal pointer-events-none">
+        <span className="absolute bottom-full left-0 z-50 mb-1.5 w-52 rounded-xl border bg-card p-2.5 shadow-lg text-xs whitespace-normal pointer-events-none">
           <span className="block font-semibold text-foreground leading-snug">{section}</span>
-          <span className="block text-muted-foreground mt-1 font-mono text-[10px] break-all">{file}</span>
+          <span className="block text-muted-foreground mt-0.5 font-mono text-[10px] break-all">{file}</span>
         </span>
       )}
     </span>
   );
 }
+
+// ── Public component ────────────────────────────────────────────────────────
 
 interface CitedTextProps {
   text: string;
@@ -72,16 +107,35 @@ interface CitedTextProps {
 }
 
 export function CitedText({ text, className }: CitedTextProps) {
-  const parts = parseCitations(text);
+  const tokens = useMemo(() => tokenizeRichText(text), [text]);
   return (
     <span className={className}>
-      {parts.map((part, i) =>
-        part.type === "text" ? (
-          <span key={i}>{part.content}</span>
-        ) : (
-          <CitationBadge key={i} file={part.file} section={part.section} />
-        )
-      )}
+      {tokens.map((tok, i) => {
+        switch (tok.kind) {
+          case "text":
+            return <span key={i}>{tok.text}</span>;
+          case "bold":
+            return (
+              <strong key={i} className="font-semibold text-foreground/90">
+                {tok.text}
+              </strong>
+            );
+          case "heading":
+            return (
+              <span
+                key={i}
+                className="block font-semibold text-foreground text-sm mt-3 first:mt-0 mb-0.5"
+              >
+                {tok.text}
+              </span>
+            );
+          case "newline":
+            // Newlines render as spaces in flowing prose; headings (block) create visual breaks naturally
+            return <span key={i}> </span>;
+          case "citation":
+            return <CitationBadge key={i} file={tok.file} section={tok.section} />;
+        }
+      })}
     </span>
   );
 }

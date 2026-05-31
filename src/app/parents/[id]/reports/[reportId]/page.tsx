@@ -23,7 +23,6 @@ import { db } from "@/lib/db";
 import type { LabValue, Report } from "@/lib/db";
 import type { ParsedReport, ParsedReportSource, PatternExplanation } from "@/lib/types";
 import { CitedText } from "@/components/cited-text";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -159,15 +158,19 @@ function buildShareText(
 
 function SourcePills({ sources }: { sources: ParsedReportSource[] }) {
   if (sources.length === 0) return null;
+  // Deduplicate by section name
+  const unique = sources.filter(
+    (s, i, arr) => arr.findIndex((x) => x.section === s.section) === i
+  );
   return (
-    <div className="flex flex-wrap gap-1.5 pt-1">
-      {sources.map((s, i) => (
+    <div className="flex flex-wrap gap-1.5">
+      {unique.map((s, i) => (
         <span
           key={i}
-          className="inline-flex items-center rounded border border-border bg-muted px-2 py-0.5 text-xs text-muted-foreground"
-          title={`Distance: ${s.distance.toFixed(4)}`}
+          className="inline-flex items-center rounded-full border border-border/60 bg-muted/80 px-2.5 py-0.5 text-[11px] text-muted-foreground/80"
+          title={s.file}
         >
-          {s.file} → {s.section}
+          {s.section}
         </span>
       ))}
     </div>
@@ -175,17 +178,48 @@ function SourcePills({ sources }: { sources: ParsedReportSource[] }) {
 }
 
 function PatternCard({ pe }: { pe: PatternExplanation }) {
+  const [expanded, setExpanded] = useState(true);
+  const sources = pe.sources ?? [];
+
   return (
-    <Card className="rounded-2xl">
-      <CardContent className="p-5 space-y-3">
-        <p className="text-base font-semibold text-foreground">{pe.pattern}</p>
-        <CitedText
-          text={pe.explanation}
-          className="text-sm text-muted-foreground leading-relaxed"
-        />
-        <SourcePills sources={pe.sources ?? []} />
-      </CardContent>
-    </Card>
+    <div className="rounded-2xl border bg-card overflow-hidden flex">
+      {/* Amber left accent */}
+      <div className="w-1 bg-amber-400 shrink-0" />
+      <div className="flex-1 min-w-0 p-5 space-y-0">
+        {/* Header row */}
+        <button
+          onClick={() => setExpanded((v) => !v)}
+          className="flex items-center justify-between w-full gap-3 text-left"
+        >
+          <p className="text-sm font-semibold text-foreground leading-snug">
+            {pe.pattern}
+          </p>
+          <ChevronDown
+            className={cn(
+              "h-4 w-4 text-muted-foreground shrink-0 transition-transform duration-200",
+              !expanded && "-rotate-90"
+            )}
+          />
+        </button>
+
+        {expanded && (
+          <div className="mt-3 space-y-3">
+            <CitedText
+              text={pe.explanation}
+              className="block text-sm text-muted-foreground leading-[1.7]"
+            />
+            {sources.length > 0 && (
+              <div className="pt-2 border-t border-border/40 space-y-1.5">
+                <p className="text-[11px] font-medium text-muted-foreground/60 uppercase tracking-wide">
+                  Sources
+                </p>
+                <SourcePills sources={sources} />
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -213,10 +247,10 @@ function ValueCard({
               <Pencil className="h-3 w-3 text-muted-foreground shrink-0" />
             )}
           </div>
-          <p className="font-mono text-sm shrink-0 tabular-nums">
+          <p className="font-mono text-sm shrink-0">
             {lv.value}
             {lv.unit && (
-              <span className="text-muted-foreground ml-1 font-sans">{lv.unit}</span>
+              <span className="text-muted-foreground ml-1 font-sans text-xs">{lv.unit}</span>
             )}
           </p>
         </div>
@@ -247,10 +281,10 @@ function ValueCard({
 
         {/* "Why this matters" expandable section for abnormals */}
         {hasCited && (
-          <div className="border-t border-border/60 pt-2 mt-1">
+          <div className="border-t border-border/50 pt-2 mt-1">
             <button
               onClick={onToggle}
-              className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors w-full text-left h-8"
+              className="flex items-center gap-1.5 text-xs font-semibold text-primary/70 hover:text-primary transition-colors w-full text-left py-1"
             >
               <ChevronDown
                 className={cn(
@@ -261,12 +295,19 @@ function ValueCard({
               Why this matters
             </button>
             {expanded && (
-              <div className="mt-2 space-y-3">
+              <div className="mt-2 space-y-3 pb-1">
                 <CitedText
                   text={lv.citedExplanation!}
-                  className="text-sm text-muted-foreground leading-relaxed"
+                  className="block text-sm text-muted-foreground leading-[1.7]"
                 />
-                <SourcePills sources={sources} />
+                {sources.length > 0 && (
+                  <div className="space-y-1.5">
+                    <p className="text-[11px] font-medium text-muted-foreground/60 uppercase tracking-wide">
+                      Sources
+                    </p>
+                    <SourcePills sources={sources} />
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -747,7 +788,7 @@ export default function ReportDetailPage() {
               {/* Test panel */}
               <h1
                 className={cn(
-                  "text-2xl font-semibold tracking-tight leading-snug",
+                  "text-xl font-semibold tracking-tight leading-snug",
                   TL_TEXT[tl]
                 )}
               >
@@ -763,6 +804,38 @@ export default function ReportDetailPage() {
                   .filter(Boolean)
                   .join(" · ")}
               </p>
+              {/* Filter toggle — lives here so it's always visible above the fold */}
+              {hasAbnormals && (
+                <div className={cn("flex items-center justify-between pt-2 border-t border-current/10")}>
+                  <span className={cn("text-xs font-medium opacity-50", TL_TEXT[tl])}>
+                    Values
+                  </span>
+                  <div className="flex items-center rounded-full border border-current/20 bg-background/50 p-0.5 gap-0.5">
+                    <button
+                      onClick={() => setShowAll(false)}
+                      className={cn(
+                        "px-3 py-1 text-xs rounded-full font-medium transition-all",
+                        !showAll
+                          ? "bg-background text-foreground shadow-sm"
+                          : "text-muted-foreground"
+                      )}
+                    >
+                      Abnormal only
+                    </button>
+                    <button
+                      onClick={() => setShowAll(true)}
+                      className={cn(
+                        "px-3 py-1 text-xs rounded-full font-medium transition-all",
+                        showAll
+                          ? "bg-background text-foreground shadow-sm"
+                          : "text-muted-foreground"
+                      )}
+                    >
+                      Show all
+                    </button>
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
         )}
@@ -798,37 +871,9 @@ export default function ReportDetailPage() {
 
         {/* ── C. Values section ─────────────────────────────────────────── */}
         <section>
-          <div className="flex items-center justify-between mb-3 gap-3">
-            <h2 className="text-lg font-semibold tracking-tight shrink-0">
-              {editMode ? "Values" : "All Values"}
-            </h2>
-            {!editMode && hasAbnormals && (
-              <div className="flex items-center rounded-xl border bg-muted/60 p-0.5 gap-0.5">
-                <button
-                  onClick={() => setShowAll(false)}
-                  className={cn(
-                    "px-3 py-1 text-xs rounded-lg font-medium transition-all",
-                    !showAll
-                      ? "bg-background text-foreground shadow-sm"
-                      : "text-muted-foreground"
-                  )}
-                >
-                  Abnormal only
-                </button>
-                <button
-                  onClick={() => setShowAll(true)}
-                  className={cn(
-                    "px-3 py-1 text-xs rounded-lg font-medium transition-all",
-                    showAll
-                      ? "bg-background text-foreground shadow-sm"
-                      : "text-muted-foreground"
-                  )}
-                >
-                  Show all
-                </button>
-              </div>
-            )}
-          </div>
+          <h2 className="text-lg font-semibold tracking-tight mb-3">
+            {editMode ? "Values" : "All Values"}
+          </h2>
 
           {editMode ? (
             <div className="flex flex-col gap-3">
@@ -866,10 +911,10 @@ export default function ReportDetailPage() {
               {!showAll && hasAbnormals && labValues.length > displayValues.length && (
                 <button
                   onClick={() => setShowAll(true)}
-                  className="text-sm text-muted-foreground hover:text-foreground transition-colors text-center py-2"
+                  className="text-sm text-primary/60 hover:text-primary transition-colors text-center py-2 font-medium"
                 >
                   + {labValues.length - displayValues.length} normal value
-                  {labValues.length - displayValues.length !== 1 ? "s" : ""} hidden
+                  {labValues.length - displayValues.length !== 1 ? "s" : ""} — tap to show all
                 </button>
               )}
             </div>
