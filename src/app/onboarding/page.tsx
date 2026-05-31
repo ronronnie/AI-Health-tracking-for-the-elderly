@@ -25,47 +25,54 @@ export default function OnboardingPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-sky-50 via-white to-indigo-100 flex items-center justify-center p-4">
+    <div className="min-h-screen flex items-center justify-center p-4">
       {step === 1 ? (
-        <Card className="w-full max-w-sm shadow-lg">
-          <CardHeader className="items-center text-center gap-3 pt-8">
-            <div className="rounded-full bg-sky-100 p-4">
-              <HeartPulse className="h-9 w-9 text-sky-600" />
-            </div>
-            <div className="space-y-1">
-              <h1 className="text-2xl font-bold tracking-tight">ParentCare</h1>
-              <p className="text-muted-foreground text-sm">
-                Track your parents&apos; health, together.
+        <div className="w-full max-w-sm flex flex-col items-center gap-6">
+          <div className="h-24 w-24 rounded-full bg-accent flex items-center justify-center">
+            <HeartPulse className="h-12 w-12 text-primary" />
+          </div>
+
+          <div className="text-center space-y-2">
+            <h1 className="text-4xl font-bold tracking-tight">ParentCare</h1>
+            <p className="text-lg text-muted-foreground">
+              Track your parents&apos; health, together.
+            </p>
+          </div>
+
+          <Card className="w-full rounded-2xl shadow-sm">
+            <CardContent className="px-6 pt-6 text-base text-muted-foreground space-y-3 leading-relaxed">
+              <p>
+                Keep all your parents&apos; lab reports in one place and get
+                plain-English summaries powered by AI — no medical jargon
+                required.
               </p>
-            </div>
-          </CardHeader>
-          <CardContent className="text-sm text-muted-foreground text-center space-y-3 px-6">
-            <p>
-              Keep all your parents&apos; lab reports in one place and get
-              plain-English summaries powered by AI — no medical jargon
-              required.
-            </p>
-            <p>
-              Set reminders for re-tests and follow-ups, and stay coordinated
-              with other family members who help with care.
-            </p>
-            <p>
-              Everything stays private — reports are stored only on your device.
-            </p>
-          </CardContent>
-          <CardFooter className="px-6 pb-8 bg-transparent border-0">
-            <Button className="w-full h-12 text-base" onClick={handleGetStarted}>
-              Get Started
-            </Button>
-          </CardFooter>
-        </Card>
+              <p>
+                Set reminders for re-tests and follow-ups, and stay coordinated
+                with other family members who help with care.
+              </p>
+              <p>
+                Everything stays private — reports are stored only on your device.
+              </p>
+            </CardContent>
+            <CardFooter className="px-6 pb-6 pt-2">
+              <Button
+                className="w-full h-12 rounded-xl text-base px-8"
+                onClick={handleGetStarted}
+              >
+                Get Started
+              </Button>
+            </CardFooter>
+          </Card>
+        </div>
       ) : (
-        <Card className="w-full max-w-sm shadow-lg">
-          <CardHeader className="pt-6">
-            <h2 className="text-xl font-semibold">A note before you start</h2>
+        <Card className="w-full max-w-md rounded-2xl shadow-sm">
+          <CardHeader className="pt-6 px-6">
+            <h2 className="text-2xl font-semibold tracking-tight">
+              A note before you start
+            </h2>
           </CardHeader>
           <CardContent className="px-6">
-            <div className="max-h-52 overflow-y-auto text-sm text-muted-foreground space-y-3 pr-1">
+            <div className="max-h-52 overflow-y-auto text-base text-muted-foreground space-y-3 pr-1 leading-relaxed">
               <p>
                 ParentCare uses AI to help summarize lab reports in plain
                 language.
@@ -85,14 +92,14 @@ export default function OnboardingPage() {
                 not uploaded to any cloud database or shared with us.
               </p>
             </div>
-            <p className="text-xs text-muted-foreground/70 mt-3 border-t pt-3">
+            <p className="text-xs text-muted-foreground/70 mt-4 border-t pt-3">
               The AI service is configured separately by the app operator — no
               API keys needed from you.
             </p>
           </CardContent>
-          <CardFooter className="px-6 pb-8 bg-transparent border-0">
+          <CardFooter className="px-6 pb-6 pt-2">
             <Button
-              className="w-full h-12 text-base"
+              className="w-full h-12 rounded-xl text-base"
               onClick={handleIUnderstand}
             >
               I understand

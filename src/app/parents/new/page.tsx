@@ -2,9 +2,10 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
+import { ChevronLeft } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -54,98 +55,100 @@ export default function NewParentPage() {
   }
 
   return (
-    <div className="flex flex-col min-h-screen">
-      <header className="sticky top-0 z-40 bg-background border-b">
-        <div className="flex h-14 items-center gap-2 px-4">
+    <div className="flex flex-col flex-1">
+      <header className="sticky top-0 z-40 bg-background/80 backdrop-blur-xl border-b border-border">
+        <div className="flex h-14 items-center gap-1 px-3">
           <Button
             variant="ghost"
-            size="icon"
-            className="h-11 w-11 shrink-0"
+            className="gap-1 px-2 h-11 text-muted-foreground hover:text-foreground"
             onClick={() => router.back()}
           >
-            <ArrowLeft className="h-5 w-5" />
-            <span className="sr-only">Back</span>
+            <ChevronLeft className="h-5 w-5" />
+            Back
           </Button>
-          <h1 className="font-semibold text-lg">Add Parent</h1>
+          <h1 className="font-semibold text-lg ml-1">Add Parent</h1>
         </div>
       </header>
 
-      <main className="flex-1 px-4 py-6 space-y-5">
-        <div className="space-y-1.5">
-          <Label htmlFor="name">Full Name *</Label>
-          <Input
-            id="name"
-            placeholder="e.g. Margaret Johnson"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            className="h-11"
-          />
-        </div>
+      <main className="flex-1 px-4 py-6">
+        <Card className="rounded-2xl">
+          <CardContent className="p-6 space-y-5">
+            <div className="space-y-1.5">
+              <Label htmlFor="name" className="text-sm font-medium">Full Name *</Label>
+              <Input
+                id="name"
+                placeholder="e.g. Margaret Johnson"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="h-12 rounded-xl text-base"
+              />
+            </div>
 
-        <div className="space-y-1.5">
-          <Label htmlFor="dob">Date of Birth</Label>
-          <Input
-            id="dob"
-            type="date"
-            value={dob}
-            onChange={(e) => setDob(e.target.value)}
-            className="h-11"
-          />
-        </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="dob" className="text-sm font-medium">Date of Birth</Label>
+              <Input
+                id="dob"
+                type="date"
+                value={dob}
+                onChange={(e) => setDob(e.target.value)}
+                className="h-12 rounded-xl text-base"
+              />
+            </div>
 
-        <div className="space-y-1.5">
-          <Label>Gender</Label>
-          <Select value={gender} onValueChange={(v) => setGender(v ?? "")}>
-            <SelectTrigger className="h-11">
-              <SelectValue placeholder="Select gender" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="male">Male</SelectItem>
-              <SelectItem value="female">Female</SelectItem>
-              <SelectItem value="other">Other</SelectItem>
-              <SelectItem value="_none">Prefer not to say</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
+            <div className="space-y-1.5">
+              <Label className="text-sm font-medium">Gender</Label>
+              <Select value={gender} onValueChange={(v) => setGender(v ?? "")}>
+                <SelectTrigger className="h-12 rounded-xl text-base">
+                  <SelectValue placeholder="Select gender" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="male">Male</SelectItem>
+                  <SelectItem value="female">Female</SelectItem>
+                  <SelectItem value="other">Other</SelectItem>
+                  <SelectItem value="_none">Prefer not to say</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
 
-        <div className="space-y-1.5">
-          <Label>Blood Type</Label>
-          <Select value={bloodType} onValueChange={(v) => setBloodType(v ?? "")}>
-            <SelectTrigger className="h-11">
-              <SelectValue placeholder="Select blood type" />
-            </SelectTrigger>
-            <SelectContent>
-              {BLOOD_TYPES.map((t) => (
-                <SelectItem key={t} value={t}>
-                  {t}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+            <div className="space-y-1.5">
+              <Label className="text-sm font-medium">Blood Type</Label>
+              <Select value={bloodType} onValueChange={(v) => setBloodType(v ?? "")}>
+                <SelectTrigger className="h-12 rounded-xl text-base">
+                  <SelectValue placeholder="Select blood type" />
+                </SelectTrigger>
+                <SelectContent>
+                  {BLOOD_TYPES.map((t) => (
+                    <SelectItem key={t} value={t}>
+                      {t}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
 
-        <div className="space-y-1.5">
-          <Label htmlFor="notes">Notes</Label>
-          <Textarea
-            id="notes"
-            placeholder="Existing conditions, medications, allergies — anything to remember"
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            rows={4}
-            className="resize-none"
-          />
-        </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="notes" className="text-sm font-medium">Notes</Label>
+              <Textarea
+                id="notes"
+                placeholder="Existing conditions, medications, allergies — anything to remember"
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                rows={4}
+                className="rounded-xl resize-none text-base"
+              />
+            </div>
+          </CardContent>
+        </Card>
 
-        {/* Spacer so sticky footer doesn't overlap last field on short screens */}
         <div className="h-4" />
       </main>
 
       <div
-        className="sticky bottom-0 bg-background border-t px-4 pt-3"
+        className="sticky bottom-0 bg-background/80 backdrop-blur-xl border-t border-border px-4 pt-3"
         style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}
       >
         <Button
-          className="w-full h-12 text-base"
+          className="w-full h-12 rounded-xl text-base"
           onClick={handleSave}
           disabled={!name.trim() || saving}
         >

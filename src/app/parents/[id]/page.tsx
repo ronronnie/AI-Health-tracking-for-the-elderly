@@ -14,9 +14,9 @@ import {
   parseISO,
 } from "date-fns";
 import {
-  ArrowLeft,
+  Bell,
   Camera,
-  Check,
+  ChevronLeft,
   ChevronRight,
   FileText,
   Loader2,
@@ -54,9 +54,9 @@ import { Textarea } from "@/components/ui/textarea";
 const BLOOD_TYPES = ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-", "Unknown"];
 
 const TRAFFIC_LIGHT_STYLES = {
-  green: "bg-green-100 text-green-700 border-green-200",
-  yellow: "bg-amber-100 text-amber-700 border-amber-200",
-  red: "bg-red-100 text-red-700 border-red-200",
+  green: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  yellow: "bg-amber-50 text-amber-700 border-amber-200",
+  red: "bg-rose-50 text-rose-700 border-rose-200",
 } as const;
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -69,8 +69,20 @@ type UploadPhase =
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/);
+  if (parts.length >= 2) {
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  }
+  return name.slice(0, 2).toUpperCase();
+}
+
 function ageLabel(dob: string) {
   return `${differenceInYears(new Date(), parseISO(dob))} years`;
+}
+
+function capitalize(s: string) {
+  return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
 // ── Page ───────────────────────────────────────────────────────────────────
@@ -201,7 +213,6 @@ export default function ParentDetailPage() {
       return;
     }
 
-    // ── Save to Dexie ────────────────────────────────────────────────────
     const reportId = crypto.randomUUID();
     const { parsed, usage } = result;
 
@@ -255,7 +266,7 @@ export default function ParentDetailPage() {
 
   function handlePhotoChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
-    e.target.value = ""; // reset so same file can be re-selected
+    e.target.value = "";
     if (file) processFile(file);
   }
 
@@ -283,91 +294,96 @@ export default function ParentDetailPage() {
     );
   }
 
+  const subtitle = [
+    parent.dateOfBirth ? ageLabel(parent.dateOfBirth) : null,
+    parent.gender ? capitalize(parent.gender) : null,
+    parent.bloodType ?? null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
   return (
-    <div className="flex flex-col min-h-screen">
+    <div className="flex flex-col flex-1">
       {/* Header */}
-      <header className="sticky top-0 z-40 bg-background border-b">
-        <div className="flex h-14 items-center justify-between px-4">
-          <div className="flex items-center gap-2 min-w-0">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-11 w-11 shrink-0"
-              onClick={() => router.back()}
-            >
-              <ArrowLeft className="h-5 w-5" />
-              <span className="sr-only">Back</span>
-            </Button>
-            <h1 className="font-semibold text-lg truncate">{parent.name}</h1>
-          </div>
+      <header className="sticky top-0 z-40 bg-background/80 backdrop-blur-xl border-b border-border">
+        <div className="flex h-14 items-center justify-between px-3">
+          <Button
+            variant="ghost"
+            className="gap-1 px-2 h-11 text-muted-foreground hover:text-foreground"
+            onClick={() => router.back()}
+          >
+            <ChevronLeft className="h-5 w-5" />
+            Back
+          </Button>
           <Button
             variant="ghost"
             size="icon"
-            className="h-11 w-11 shrink-0"
+            className="h-11 w-11"
             onClick={openEdit}
             aria-label="Edit parent"
           >
-            <Pencil className="h-5 w-5" />
+            <Pencil className="h-4 w-4" />
           </Button>
         </div>
       </header>
 
-      <main className="flex-1 px-4 py-6 space-y-6">
-        {/* Info card */}
-        <Card>
-          <CardContent className="p-4 space-y-2">
-            {(parent.gender || parent.bloodType) && (
-              <div className="flex items-center gap-2 flex-wrap">
-                {parent.gender && (
-                  <Badge variant="secondary" className="capitalize">
-                    {parent.gender}
-                  </Badge>
-                )}
-                {parent.bloodType && (
-                  <Badge variant="outline">{parent.bloodType}</Badge>
-                )}
-              </div>
-            )}
-            {parent.dateOfBirth && (
-              <p className="text-sm text-muted-foreground">
-                Born {format(parseISO(parent.dateOfBirth), "d MMMM yyyy")}
-                <span className="mx-2">·</span>
-                {ageLabel(parent.dateOfBirth)}
-              </p>
-            )}
-            {parent.notes && (
-              <p className="text-sm text-foreground/80 whitespace-pre-wrap leading-relaxed">
-                {parent.notes}
-              </p>
-            )}
+      <main className="flex-1 px-4 py-6 pb-28 space-y-6">
+        {/* Hero card */}
+        <Card className="rounded-2xl">
+          <CardContent className="p-6 flex flex-col items-center text-center gap-3">
+            <div className="h-16 w-16 rounded-full bg-accent text-accent-foreground flex items-center justify-center text-xl font-semibold">
+              {initials(parent.name)}
+            </div>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight">{parent.name}</h1>
+              {subtitle && (
+                <p className="text-sm text-muted-foreground mt-1">{subtitle}</p>
+              )}
+              {parent.notes && (
+                <p className="text-sm text-foreground/70 mt-2 whitespace-pre-wrap leading-relaxed max-w-xs mx-auto">
+                  {parent.notes}
+                </p>
+              )}
+            </div>
           </CardContent>
         </Card>
 
         {/* Reports section */}
         <section>
           <div className="flex items-center justify-between mb-3">
-            <h2 className="text-lg font-semibold">Reports</h2>
+            <h2 className="text-lg font-semibold tracking-tight">Reports</h2>
             <Button
               variant="outline"
               size="sm"
-              className="h-10"
+              className="h-9 rounded-xl"
               onClick={() => setUploadPhase({ phase: "choosing" })}
             >
               <Plus className="h-4 w-4 mr-1" />
               Add Report
             </Button>
           </div>
+          <Separator className="mb-4" />
 
           {!reports || reports.length === 0 ? (
-            <div className="flex items-center justify-center py-10 rounded-lg border bg-muted/30">
+            <div className="flex flex-col items-center justify-center py-10 gap-3 text-center rounded-2xl border bg-muted/20">
+              <FileText className="h-8 w-8 text-muted-foreground/40" />
               <p className="text-sm text-muted-foreground">No reports yet</p>
+              <Button
+                variant="outline"
+                size="sm"
+                className="rounded-xl h-9"
+                onClick={() => setUploadPhase({ phase: "choosing" })}
+              >
+                <Plus className="h-4 w-4 mr-1" />
+                Add Report
+              </Button>
             </div>
           ) : (
             <div className="flex flex-col gap-3">
               {reports.map((report) => (
                 <Card
                   key={report.id}
-                  className="cursor-pointer hover:shadow-md transition-shadow active:scale-[0.99]"
+                  className="cursor-pointer rounded-2xl hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 active:scale-[0.99]"
                   onClick={() =>
                     router.push(`/parents/${id}/reports/${report.id}`)
                   }
@@ -415,21 +431,32 @@ export default function ParentDetailPage() {
         {/* Reminders section */}
         <section>
           <div className="flex items-center justify-between mb-3">
-            <h2 className="text-lg font-semibold">Reminders</h2>
+            <h2 className="text-lg font-semibold tracking-tight">Reminders</h2>
             <Button
               variant="outline"
               size="sm"
-              className="h-10"
+              className="h-9 rounded-xl"
               onClick={() => router.push(`/parents/${id}/reminders/new`)}
             >
               <Plus className="h-4 w-4 mr-1" />
               Add Reminder
             </Button>
           </div>
+          <Separator className="mb-4" />
 
           {!reminders || reminders.length === 0 ? (
-            <div className="flex items-center justify-center py-10 rounded-lg border bg-muted/30">
+            <div className="flex flex-col items-center justify-center py-10 gap-3 text-center rounded-2xl border bg-muted/20">
+              <Bell className="h-8 w-8 text-muted-foreground/40" />
               <p className="text-sm text-muted-foreground">No reminders yet</p>
+              <Button
+                variant="outline"
+                size="sm"
+                className="rounded-xl h-9"
+                onClick={() => router.push(`/parents/${id}/reminders/new`)}
+              >
+                <Plus className="h-4 w-4 mr-1" />
+                Add Reminder
+              </Button>
             </div>
           ) : (
             <div className="flex flex-col gap-2">
@@ -449,7 +476,7 @@ export default function ParentDetailPage() {
                 return (
                   <div
                     key={r.id}
-                    className="flex items-start gap-3 rounded-lg border bg-card px-4 py-3"
+                    className="flex items-start gap-3 rounded-xl border bg-card px-4 py-3"
                   >
                     <button
                       className="mt-0.5 h-6 w-6 shrink-0 rounded-full border-2 border-muted-foreground/30 hover:border-primary flex items-center justify-center transition-colors"
@@ -519,10 +546,9 @@ export default function ParentDetailPage() {
           <div className="flex flex-col gap-3 py-1">
             <Button
               variant="outline"
-              className="h-12 justify-start gap-3 text-base font-normal"
+              className="h-12 justify-start gap-3 text-base font-normal rounded-xl"
               onClick={() => {
                 setUploadPhase({ phase: "idle" });
-                // small delay so dialog close animation doesn't block native file picker
                 setTimeout(() => photoInputRef.current?.click(), 100);
               }}
             >
@@ -531,7 +557,7 @@ export default function ParentDetailPage() {
             </Button>
             <Button
               variant="outline"
-              className="h-12 justify-start gap-3 text-base font-normal"
+              className="h-12 justify-start gap-3 text-base font-normal rounded-xl"
               onClick={() => {
                 setUploadPhase({ phase: "idle" });
                 setTimeout(() => pdfInputRef.current?.click(), 100);
@@ -544,7 +570,7 @@ export default function ParentDetailPage() {
           <DialogFooter>
             <Button
               variant="outline"
-              className="h-11"
+              className="h-11 rounded-xl"
               onClick={() => setUploadPhase({ phase: "idle" })}
             >
               Cancel
@@ -583,13 +609,13 @@ export default function ParentDetailPage() {
           <DialogFooter>
             <Button
               variant="outline"
-              className="h-11"
+              className="h-11 rounded-xl"
               onClick={() => setUploadPhase({ phase: "idle" })}
             >
               Dismiss
             </Button>
             <Button
-              className="h-11"
+              className="h-11 rounded-xl"
               onClick={() => setUploadPhase({ phase: "choosing" })}
             >
               Try again
@@ -614,7 +640,7 @@ export default function ParentDetailPage() {
                     id="edit-name"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    className="h-11"
+                    className="h-12 rounded-xl"
                   />
                 </div>
                 <div className="space-y-1.5">
@@ -624,7 +650,7 @@ export default function ParentDetailPage() {
                     type="date"
                     value={dob}
                     onChange={(e) => setDob(e.target.value)}
-                    className="h-11"
+                    className="h-12 rounded-xl"
                   />
                 </div>
                 <div className="space-y-1.5">
@@ -633,7 +659,7 @@ export default function ParentDetailPage() {
                     value={gender}
                     onValueChange={(v) => setGender(v ?? "")}
                   >
-                    <SelectTrigger className="h-11">
+                    <SelectTrigger className="h-12 rounded-xl">
                       <SelectValue placeholder="Select gender" />
                     </SelectTrigger>
                     <SelectContent>
@@ -650,7 +676,7 @@ export default function ParentDetailPage() {
                     value={bloodType}
                     onValueChange={(v) => setBloodType(v ?? "")}
                   >
-                    <SelectTrigger className="h-11">
+                    <SelectTrigger className="h-12 rounded-xl">
                       <SelectValue placeholder="Select blood type" />
                     </SelectTrigger>
                     <SelectContent>
@@ -669,13 +695,13 @@ export default function ParentDetailPage() {
                     value={notes}
                     onChange={(e) => setNotes(e.target.value)}
                     rows={3}
-                    className="resize-none"
+                    className="resize-none rounded-xl"
                   />
                 </div>
                 <Separator />
                 <Button
                   variant="destructive"
-                  className="w-full h-11"
+                  className="w-full h-11 rounded-xl"
                   onClick={() => setConfirmDelete(true)}
                 >
                   Delete Parent
@@ -684,13 +710,13 @@ export default function ParentDetailPage() {
               <DialogFooter>
                 <Button
                   variant="outline"
-                  className="h-11"
+                  className="h-11 rounded-xl"
                   onClick={() => setEditOpen(false)}
                 >
                   Cancel
                 </Button>
                 <Button
-                  className="h-11"
+                  className="h-11 rounded-xl"
                   onClick={handleSave}
                   disabled={!name.trim() || saving}
                 >
@@ -708,14 +734,14 @@ export default function ParentDetailPage() {
               <div className="flex gap-3">
                 <Button
                   variant="outline"
-                  className="flex-1 h-11"
+                  className="flex-1 h-11 rounded-xl"
                   onClick={() => setConfirmDelete(false)}
                 >
                   Cancel
                 </Button>
                 <Button
                   variant="destructive"
-                  className="flex-1 h-11"
+                  className="flex-1 h-11 rounded-xl"
                   onClick={handleDeleteParent}
                 >
                   Delete

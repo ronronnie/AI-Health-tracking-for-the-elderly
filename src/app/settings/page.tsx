@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
+import { ChevronLeft } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -55,7 +55,6 @@ export default function SettingsPage() {
         db.reminders.toArray(),
       ]);
 
-      // Strip Blob fields — they don't serialise to JSON
       const reportsClean = reports.map(
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
         ({ originalFileBlob: _blob, ...rest }) => rest
@@ -101,34 +100,33 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="flex flex-col min-h-screen">
-      <header className="sticky top-0 z-40 bg-background border-b">
-        <div className="flex h-14 items-center gap-2 px-4">
+    <div className="flex flex-col flex-1">
+      <header className="sticky top-0 z-40 bg-background/80 backdrop-blur-xl border-b border-border">
+        <div className="flex h-14 items-center gap-1 px-3">
           <Button
             variant="ghost"
-            size="icon"
-            className="h-11 w-11 shrink-0"
+            className="gap-1 px-2 h-11 text-muted-foreground hover:text-foreground"
             onClick={() => router.back()}
           >
-            <ArrowLeft className="h-5 w-5" />
-            <span className="sr-only">Back</span>
+            <ChevronLeft className="h-5 w-5" />
+            Back
           </Button>
-          <h1 className="font-semibold text-lg">Settings</h1>
+          <h1 className="font-semibold text-lg ml-1">Settings</h1>
         </div>
       </header>
 
-      <main className="flex-1 px-4 py-6 space-y-5">
-        {/* Data section */}
-        <Card>
-          <CardHeader className="pb-1">
-            <CardTitle className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
+      <main className="flex-1 px-4 py-6 pb-28 space-y-5">
+        {/* Data */}
+        <Card className="rounded-2xl">
+          <CardHeader className="pb-2 px-5 pt-5">
+            <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
               Data
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-3">
+          <CardContent className="px-5 pb-5 space-y-3">
             <Button
               variant="outline"
-              className="w-full h-11 justify-start font-normal"
+              className="w-full h-11 justify-start font-normal rounded-xl"
               onClick={handleExport}
             >
               Export all data as JSON
@@ -139,13 +137,13 @@ export default function SettingsPage() {
             {!confirmClear ? (
               <Button
                 variant="destructive"
-                className="w-full h-11 justify-start font-normal"
+                className="w-full h-11 justify-start font-normal rounded-xl"
                 onClick={() => setConfirmClear(true)}
               >
                 Clear all data
               </Button>
             ) : (
-              <div className="space-y-3 rounded-lg border border-destructive/30 bg-destructive/5 p-4">
+              <div className="space-y-3 rounded-xl border border-destructive/30 bg-destructive/5 p-4">
                 <p className="text-sm text-muted-foreground">
                   This deletes all parents, reports, reminders, and resets
                   onboarding. Are you sure?
@@ -153,14 +151,14 @@ export default function SettingsPage() {
                 <div className="flex gap-3">
                   <Button
                     variant="outline"
-                    className="flex-1 h-11"
+                    className="flex-1 h-11 rounded-xl"
                     onClick={() => setConfirmClear(false)}
                   >
                     Cancel
                   </Button>
                   <Button
                     variant="destructive"
-                    className="flex-1 h-11"
+                    className="flex-1 h-11 rounded-xl"
                     onClick={handleClearData}
                   >
                     Clear everything
@@ -171,14 +169,14 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
 
-        {/* Backend section */}
-        <Card>
-          <CardHeader className="pb-1">
-            <CardTitle className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
+        {/* Backend */}
+        <Card className="rounded-2xl">
+          <CardHeader className="pb-2 px-5 pt-5">
+            <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
               Backend
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-3">
+          <CardContent className="px-5 pb-5 space-y-3">
             <p className="text-sm text-muted-foreground">
               Backend API:{" "}
               <code className="text-xs font-mono bg-muted px-1.5 py-0.5 rounded text-foreground">
@@ -189,7 +187,7 @@ export default function SettingsPage() {
             <div className="flex items-center gap-3 flex-wrap">
               <Button
                 variant="outline"
-                className="h-10"
+                className="h-10 rounded-xl"
                 onClick={testConnection}
                 disabled={health.state === "checking"}
               >
@@ -197,18 +195,13 @@ export default function SettingsPage() {
               </Button>
 
               {health.state === "ok" && (
-                <div className="flex items-center gap-2">
-                  <Badge className="bg-green-100 text-green-700 border-green-200 border hover:bg-green-100">
-                    Reachable
-                  </Badge>
-                  <span className="text-xs text-muted-foreground">
-                    {health.corpusChunks} corpus chunks
-                  </span>
-                </div>
+                <Badge className="status-normal border text-xs px-3 py-1">
+                  Connected · {health.corpusChunks} chunks
+                </Badge>
               )}
 
               {health.state === "error" && (
-                <Badge className="bg-red-100 text-red-700 border-red-200 border hover:bg-red-100">
+                <Badge className="status-critical border text-xs px-3 py-1">
                   {health.message}
                 </Badge>
               )}
@@ -216,14 +209,14 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
 
-        {/* API key section */}
-        <Card>
-          <CardHeader className="pb-1">
-            <CardTitle className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
+        {/* API Key */}
+        <Card className="rounded-2xl">
+          <CardHeader className="pb-2 px-5 pt-5">
+            <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
               API Key Status
             </CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="px-5 pb-5">
             <p className="text-sm text-muted-foreground leading-relaxed">
               Configured server-side. If you&apos;re the operator, set{" "}
               <code className="text-xs font-mono bg-muted px-1.5 py-0.5 rounded text-foreground">
@@ -234,14 +227,14 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
 
-        {/* About section */}
-        <Card>
-          <CardHeader className="pb-1">
-            <CardTitle className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
+        {/* About */}
+        <Card className="rounded-2xl">
+          <CardHeader className="pb-2 px-5 pt-5">
+            <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
               About
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-3">
+          <CardContent className="px-5 pb-5 space-y-3">
             <p className="text-sm text-muted-foreground leading-relaxed">
               ParentCare v0.1.0 — A personal health tracker for your parents.
               Built with Next.js, Dexie, and the Anthropic API.
@@ -250,7 +243,7 @@ export default function SettingsPage() {
               href="https://console.anthropic.com/"
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-block text-sm text-sky-600 underline underline-offset-2 hover:text-sky-700"
+              className="inline-block text-sm text-primary underline underline-offset-2 hover:opacity-80 transition-opacity"
             >
               Anthropic Console →
             </a>
