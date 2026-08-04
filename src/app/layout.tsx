@@ -50,7 +50,7 @@ export default function RootLayout({
     >
       <body className="bg-app-gradient min-h-screen text-foreground antialiased">
         <Providers>
-          <div className="mx-auto max-w-2xl min-h-screen flex flex-col">
+          <div className="mx-auto max-w-2xl lg:max-w-5xl min-h-screen flex flex-col">
             {children}
           </div>
           <BottomNav />

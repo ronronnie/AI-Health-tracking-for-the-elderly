@@ -189,9 +189,10 @@ function PatternCard({ pe }: { pe: PatternExplanation }) {
         {/* Header row */}
         <button
           onClick={() => setExpanded((v) => !v)}
-          className="flex items-center justify-between w-full gap-3 text-left"
+          aria-expanded={expanded}
+          className="flex items-center justify-between w-full gap-3 text-left rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
         >
-          <p className="text-sm font-semibold text-foreground leading-snug">
+          <p className="text-base font-semibold text-foreground leading-snug">
             {pe.pattern}
           </p>
           <ChevronDown
@@ -206,7 +207,7 @@ function PatternCard({ pe }: { pe: PatternExplanation }) {
           <div className="mt-3 space-y-3">
             <CitedText
               text={pe.explanation}
-              className="block text-sm text-muted-foreground leading-[1.7]"
+              className="block text-sm text-foreground/75 leading-[1.75]"
             />
             {sources.length > 0 && (
               <div className="pt-2 border-t border-border/40 space-y-1.5">
@@ -774,16 +775,17 @@ export default function ReportDetailPage() {
         {!editMode && (
           <Card className={cn("rounded-2xl border-2", TL_CARD[tl])}>
             <CardContent className="p-5 space-y-3">
-              {/* Traffic light pill + headline */}
+              {/* Traffic light callout + headline */}
               <div
                 className={cn(
-                  "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-semibold",
-                  TL_PILL[tl],
-                  TL_TEXT[tl]
+                  "flex items-start gap-2.5 rounded-xl border px-3.5 py-2.5",
+                  TL_PILL[tl]
                 )}
               >
-                <span className={cn("h-2 w-2 rounded-full shrink-0", TL_DOT[tl])} />
-                {report.headline}
+                <span className={cn("mt-1.5 h-2 w-2 rounded-full shrink-0", TL_DOT[tl])} />
+                <p className={cn("text-sm font-semibold leading-relaxed", TL_TEXT[tl])}>
+                  {report.headline}
+                </p>
               </div>
               {/* Test panel */}
               <h1
@@ -840,6 +842,13 @@ export default function ReportDetailPage() {
           </Card>
         )}
 
+        {/* Two-column on desktop so tall content doesn't force one long scroll */}
+        <div
+          className={cn(
+            "space-y-6",
+            !editMode && "lg:grid lg:grid-cols-2 lg:gap-6 lg:space-y-0 lg:items-start"
+          )}
+        >
         {/* ── B. Patterns section ───────────────────────────────────────── */}
         {!editMode && (
           <section>
@@ -920,6 +929,7 @@ export default function ReportDetailPage() {
             </div>
           )}
         </section>
+        </div>
 
         {/* ── D. Next steps ─────────────────────────────────────────────── */}
         {!editMode && report.nextSteps && (

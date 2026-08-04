@@ -63,7 +63,15 @@ function tokenizeRichText(input: string): Token[] {
 
 // ── Citation badge ──────────────────────────────────────────────────────────
 
-function CitationBadge({ file, section }: { file: string; section: string }) {
+function CitationBadge({
+  index,
+  file,
+  section,
+}: {
+  index: number;
+  file: string;
+  section: string;
+}) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLSpanElement>(null);
 
@@ -77,17 +85,18 @@ function CitationBadge({ file, section }: { file: string; section: string }) {
   }, [open]);
 
   return (
-    <span ref={ref} className="relative inline-block align-middle">
+    <span ref={ref} className="relative inline-block">
       <button
         onClick={() => setOpen((v) => !v)}
+        aria-label={`Source ${index}: ${section}`}
         className={cn(
-          "inline-flex items-center rounded border px-1 py-px text-[10px] font-medium leading-tight transition-colors mx-0.5 cursor-pointer",
+          "align-super ml-0.5 inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full border px-1 text-[10px] font-semibold leading-none transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
           open
-            ? "border-primary/30 bg-primary/10 text-primary"
-            : "border-border/70 bg-muted/70 text-muted-foreground/80 hover:bg-accent hover:text-accent-foreground"
+            ? "border-primary/40 bg-primary/15 text-primary"
+            : "border-border bg-muted text-muted-foreground/90 hover:bg-accent hover:text-accent-foreground"
         )}
       >
-        {section}
+        {index}
       </button>
       {open && (
         <span className="absolute bottom-full left-0 z-50 mb-1.5 w-52 rounded-xl border bg-card p-2.5 shadow-lg text-xs whitespace-normal pointer-events-none">
@@ -108,6 +117,9 @@ interface CitedTextProps {
 
 export function CitedText({ text, className }: CitedTextProps) {
   const tokens = useMemo(() => tokenizeRichText(text), [text]);
+  // Sequential reference number per citation, so prose stays readable and
+  // markers read like footnotes (¹ ² ³) instead of inline section-name chips.
+  let citationNo = 0;
   return (
     <span className={className}>
       {tokens.map((tok, i) => {
@@ -116,7 +128,7 @@ export function CitedText({ text, className }: CitedTextProps) {
             return <span key={i}>{tok.text}</span>;
           case "bold":
             return (
-              <strong key={i} className="font-semibold text-foreground/90">
+              <strong key={i} className="font-semibold text-foreground">
                 {tok.text}
               </strong>
             );
@@ -132,8 +144,17 @@ export function CitedText({ text, className }: CitedTextProps) {
           case "newline":
             // Newlines render as spaces in flowing prose; headings (block) create visual breaks naturally
             return <span key={i}> </span>;
-          case "citation":
-            return <CitationBadge key={i} file={tok.file} section={tok.section} />;
+          case "citation": {
+            citationNo += 1;
+            return (
+              <CitationBadge
+                key={i}
+                index={citationNo}
+                file={tok.file}
+                section={tok.section}
+              />
+            );
+          }
         }
       })}
     </span>

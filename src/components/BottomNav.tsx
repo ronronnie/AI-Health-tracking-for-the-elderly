@@ -37,7 +37,7 @@ function BottomNavInner({ pathname }: { pathname: string }) {
         className="fixed bottom-0 left-0 right-0 z-40 backdrop-blur-xl bg-background/75 border-t border-border"
         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
       >
-        <div className="flex h-16 max-w-2xl mx-auto">
+        <div className="flex h-16 max-w-2xl lg:max-w-5xl mx-auto">
           <Link
             href="/"
             className={cn(
