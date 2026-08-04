@@ -53,11 +53,18 @@ export interface Reminder {
   createdAt: string;
 }
 
+/** Lifetime counters for free-plan quotas. Deliberately not cleared by "Clear all data". */
+export interface Usage {
+  key: string;           // e.g. 'generations'
+  count: number;
+}
+
 class ParentCareDB extends Dexie {
   parents!: Table<Parent, string>;
   reports!: Table<Report, string>;
   labValues!: Table<LabValue, string>;
   reminders!: Table<Reminder, string>;
+  usage!: Table<Usage, string>;
 
   constructor() {
     super('parentcare');
@@ -66,6 +73,9 @@ class ParentCareDB extends Dexie {
       reports: 'id, parentId, reportDate, createdAt',
       labValues: 'id, reportId, name, status',
       reminders: 'id, parentId, scheduledDate, isCompleted',
+    });
+    this.version(2).stores({
+      usage: 'key',
     });
   }
 }

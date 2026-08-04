@@ -8,12 +8,15 @@ import { startOfDay } from "date-fns";
 import { AlertCircle, HeartPulse, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { db } from "@/lib/db";
+import { MAX_PARENTS } from "@/lib/limits";
 import { AppHeader } from "@/components/app-header";
+import { LimitReachedDialog } from "@/components/limit-reached-dialog";
 import { ParentCard } from "@/components/parent-card";
 
 export default function HomePage() {
   const router = useRouter();
   const [checked, setChecked] = useState(false);
+  const [limitOpen, setLimitOpen] = useState(false);
 
   useEffect(() => {
     if (!localStorage.getItem("parentcare_onboarded")) {
@@ -37,6 +40,14 @@ export default function HomePage() {
 
   if (!checked) return null;
 
+  function goToAddParent() {
+    if ((parents?.length ?? 0) >= MAX_PARENTS) {
+      setLimitOpen(true);
+      return;
+    }
+    router.push("/parents/new");
+  }
+
   return (
     <div className="flex flex-col flex-1">
       <AppHeader />
@@ -58,10 +69,7 @@ export default function HomePage() {
 
         <div className="flex items-center justify-between mt-2 mb-5">
           <h2 className="text-3xl font-semibold tracking-tight">My Parents</h2>
-          <Button
-            className="rounded-xl h-10"
-            onClick={() => router.push("/parents/new")}
-          >
+          <Button className="rounded-xl h-10" onClick={goToAddParent}>
             <Plus className="h-4 w-4 mr-1" />
             Add Parent
           </Button>
@@ -75,13 +83,11 @@ export default function HomePage() {
             <div className="space-y-2 max-w-xs">
               <p className="text-xl font-semibold tracking-tight">Welcome to ParentCare</p>
               <p className="text-sm text-muted-foreground leading-relaxed">
-                Start by adding the parents you care for — you can add as many as you&apos;d like.
+                Start by adding the parents you care for — up to {MAX_PARENTS} on
+                the free plan.
               </p>
             </div>
-            <Button
-              className="h-12 rounded-xl px-6 mt-2"
-              onClick={() => router.push("/parents/new")}
-            >
+            <Button className="h-12 rounded-xl px-6 mt-2" onClick={goToAddParent}>
               <Plus className="h-4 w-4 mr-1" />
               Add Your First Parent
             </Button>
@@ -95,9 +101,26 @@ export default function HomePage() {
                 onClick={() => router.push(`/parents/${parent.id}`)}
               />
             ))}
+            {parents.length >= MAX_PARENTS && (
+              <p className="pt-1 text-center text-xs text-muted-foreground">
+                You&apos;ve used all {MAX_PARENTS} free parent slots.{" "}
+                <button
+                  className="underline underline-offset-2 hover:text-foreground"
+                  onClick={() => setLimitOpen(true)}
+                >
+                  Need more?
+                </button>
+              </p>
+            )}
           </div>
         )}
       </main>
+
+      <LimitReachedDialog
+        open={limitOpen}
+        onOpenChange={setLimitOpen}
+        kind="parents"
+      />
     </div>
   );
 }

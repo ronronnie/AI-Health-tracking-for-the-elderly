@@ -27,6 +27,12 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { db } from "@/lib/db";
 import { parseReport, healthCheck } from "@/lib/services/api";
+import {
+  MAX_GENERATIONS,
+  getGenerationsUsed,
+  incrementGenerationsUsed,
+} from "@/lib/limits";
+import { LimitReachedDialog } from "@/components/limit-reached-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -123,6 +129,13 @@ export default function ParentDetailPage() {
     [id]
   );
 
+  const generationsUsed = useLiveQuery(
+    () => db.usage.get("generations").then((r) => r?.count ?? 0),
+    [],
+    0
+  );
+  const generationsLeft = Math.max(0, MAX_GENERATIONS - generationsUsed);
+
   // ── Edit dialog state ────────────────────────────────────────────────────
   const [editOpen, setEditOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -197,6 +210,7 @@ export default function ParentDetailPage() {
   const [parseMessageIndex, setParseMessageIndex] = useState(0);
   const [testingHealth, setTestingHealth] = useState(false);
   const [healthTestResult, setHealthTestResult] = useState<string | null>(null);
+  const [limitOpen, setLimitOpen] = useState(false);
   const photoInputRef = useRef<HTMLInputElement>(null);
   const pdfInputRef = useRef<HTMLInputElement>(null);
 
@@ -224,7 +238,22 @@ export default function ParentDetailPage() {
     }
   }
 
+  /** Opens the report picker, or the limit popup if the quota is spent. */
+  async function startAddReport() {
+    if ((await getGenerationsUsed()) >= MAX_GENERATIONS) {
+      setLimitOpen(true);
+      return;
+    }
+    setUploadPhase({ phase: "choosing" });
+  }
+
   async function processFile(file: File) {
+    // Re-check here too: the picker may have been opened before the last parse.
+    if ((await getGenerationsUsed()) >= MAX_GENERATIONS) {
+      setLimitOpen(true);
+      return;
+    }
+
     if (file.size > 20 * 1024 * 1024) {
       toast.warning("File is larger than 20 MB — saving may be slow.");
     }
@@ -294,6 +323,8 @@ export default function ParentDetailPage() {
       });
       return;
     }
+
+    await incrementGenerationsUsed();
 
     setUploadPhase({ phase: "idle" });
     router.push(`/parents/${id}/reports/${reportId}`);
@@ -391,7 +422,7 @@ export default function ParentDetailPage() {
               variant="outline"
               size="sm"
               className="h-9 rounded-xl"
-              onClick={() => setUploadPhase({ phase: "choosing" })}
+              onClick={startAddReport}
             >
               <Plus className="h-4 w-4 mr-1" />
               Add Report
@@ -407,7 +438,7 @@ export default function ParentDetailPage() {
                 variant="outline"
                 size="sm"
                 className="rounded-xl h-9"
-                onClick={() => setUploadPhase({ phase: "choosing" })}
+                onClick={startAddReport}
               >
                 <Plus className="h-4 w-4 mr-1" />
                 Add Report
@@ -461,6 +492,25 @@ export default function ParentDetailPage() {
               ))}
             </div>
           )}
+
+          <p className="pt-3 text-center text-xs text-muted-foreground">
+            {generationsLeft > 0 ? (
+              <>
+                {generationsLeft} of {MAX_GENERATIONS} free report{" "}
+                {generationsLeft === 1 ? "generation" : "generations"} left
+              </>
+            ) : (
+              <>
+                You&apos;ve used all {MAX_GENERATIONS} free report generations.{" "}
+                <button
+                  className="underline underline-offset-2 hover:text-foreground"
+                  onClick={() => setLimitOpen(true)}
+                >
+                  Need more?
+                </button>
+              </>
+            )}
+          </p>
         </section>
 
         {/* Reminders section */}
@@ -704,6 +754,13 @@ export default function ParentDetailPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* ── Generation limit dialog ─────────────────────────────────────── */}
+      <LimitReachedDialog
+        open={limitOpen}
+        onOpenChange={setLimitOpen}
+        kind="generations"
+      />
 
       {/* ── Edit dialog ─────────────────────────────────────────────────── */}
       <Dialog open={editOpen} onOpenChange={setEditOpen}>

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useLiveQuery } from "dexie-react-hooks";
 import { ChevronLeft } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -14,6 +15,8 @@ import {
 } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { db } from "@/lib/db";
+import { MAX_GENERATIONS, MAX_PARENTS } from "@/lib/limits";
+import { LimitReachedDialog } from "@/components/limit-reached-dialog";
 
 const BACKEND_URL = "http://localhost:8000";
 
@@ -27,6 +30,14 @@ export default function SettingsPage() {
   const router = useRouter();
   const [confirmClear, setConfirmClear] = useState(false);
   const [health, setHealth] = useState<HealthStatus>({ state: "idle" });
+  const [limitOpen, setLimitOpen] = useState(false);
+
+  const parentsUsed = useLiveQuery(() => db.parents.count(), [], 0);
+  const generationsUsed = useLiveQuery(
+    () => db.usage.get("generations").then((r) => r?.count ?? 0),
+    [],
+    0
+  );
 
   async function testConnection() {
     setHealth({ state: "checking" });
@@ -116,6 +127,37 @@ export default function SettingsPage() {
       </header>
 
       <main className="flex-1 px-4 py-6 pb-28 space-y-5">
+        {/* Plan */}
+        <Card className="rounded-2xl">
+          <CardHeader className="pb-2 px-5 pt-5">
+            <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+              Free plan
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="px-5 pb-5 space-y-3">
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">Parents</span>
+              <span className="font-medium">
+                {parentsUsed} / {MAX_PARENTS}
+              </span>
+            </div>
+            <Separator />
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">Report generations</span>
+              <span className="font-medium">
+                {generationsUsed} / {MAX_GENERATIONS}
+              </span>
+            </div>
+            <Button
+              variant="outline"
+              className="w-full h-11 justify-start font-normal rounded-xl"
+              onClick={() => setLimitOpen(true)}
+            >
+              Request more
+            </Button>
+          </CardContent>
+        </Card>
+
         {/* Data */}
         <Card className="rounded-2xl">
           <CardHeader className="pb-2 px-5 pt-5">
@@ -209,24 +251,6 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
 
-        {/* API Key */}
-        <Card className="rounded-2xl">
-          <CardHeader className="pb-2 px-5 pt-5">
-            <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-              API Key Status
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="px-5 pb-5">
-            <p className="text-sm text-muted-foreground leading-relaxed">
-              Configured server-side. If you&apos;re the operator, set{" "}
-              <code className="text-xs font-mono bg-muted px-1.5 py-0.5 rounded text-foreground">
-                ANTHROPIC_API_KEY
-              </code>{" "}
-              in Vercel.
-            </p>
-          </CardContent>
-        </Card>
-
         {/* About */}
         <Card className="rounded-2xl">
           <CardHeader className="pb-2 px-5 pt-5">
@@ -250,6 +274,12 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
       </main>
+
+      <LimitReachedDialog
+        open={limitOpen}
+        onOpenChange={setLimitOpen}
+        kind={parentsUsed >= MAX_PARENTS ? "parents" : "generations"}
+      />
     </div>
   );
 }

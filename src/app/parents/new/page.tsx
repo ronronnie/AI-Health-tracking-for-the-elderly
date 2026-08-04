@@ -17,6 +17,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { db } from "@/lib/db";
+import { hasParentSlotsLeft } from "@/lib/limits";
+import { LimitReachedDialog } from "@/components/limit-reached-dialog";
 
 const BLOOD_TYPES = ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-", "Unknown"];
 
@@ -29,10 +31,18 @@ export default function NewParentPage() {
   const [bloodType, setBloodType] = useState("");
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
+  const [limitOpen, setLimitOpen] = useState(false);
 
   async function handleSave() {
     if (!name.trim()) return;
     setSaving(true);
+
+    if (!(await hasParentSlotsLeft())) {
+      setLimitOpen(true);
+      setSaving(false);
+      return;
+    }
+
     try {
       await db.parents.add({
         id: crypto.randomUUID(),
@@ -155,6 +165,12 @@ export default function NewParentPage() {
           {saving ? "Saving…" : "Save Parent"}
         </Button>
       </div>
+
+      <LimitReachedDialog
+        open={limitOpen}
+        onOpenChange={setLimitOpen}
+        kind="parents"
+      />
     </div>
   );
 }
